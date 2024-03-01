@@ -5,7 +5,8 @@
 #![no_std]
 #![no_main]
 
-mod sx1509;
+mod encoder;
+// mod sx1509;
 
 extern crate embedded_hal as hal;
 
@@ -59,21 +60,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let i2c = RefCell::new(I2C::i2c0(
-        pac.I2C0,
-        pins.gpio0.into_function(),
-        pins.gpio1.into_function(),
-        400u32.kHz(),
-        &mut pac.RESETS,
-        125_000_000.Hz(),
-    ));
-
-    let expander = sx1509::Sx1509::new(&i2c, sx1509::DEFAULT_ADDRESS).unwrap();
-    let extra_pins = expander.split();
-
-    // let mut pwm0 = pins.gpio0.into_analog_output().unwrap();
-    let mut a0 = extra_pins.gpio0.into_analog_output().unwrap();
-    let mut d0 = pins.gpio2.into_push_pull_output();
+    let mut encoder = encoder::Encoder::new(pins.gpio0.into_floating_input());
 
     // This is the correct pin on the Raspberry Pico board. On other boards, even if they have an
     // on-board LED, it might need to be changed.
@@ -84,15 +71,13 @@ fn main() -> ! {
     // If you have a Pico W and want to toggle a LED with a simple GPIO output pin, you can connect an external
     // LED to one of the GPIO pins, and reference that pin here. Don't forget adding an appropriate resistor
     // in series with the LED.
+    let mut led = pins.led.into_push_pull_output();
     loop {
+        encoder.update();
         info!("on!");
-        d0.set_high().unwrap();
-        for i in 0..255 {
-            a0.write_analog(i).unwrap();
-            delay.delay_ms(20);
-        }
+        led.set_high().unwrap();
         info!("off!");
-        d0.set_low().unwrap();
+        led.set_low().unwrap();
         delay.delay_ms(500);
     }
 }
