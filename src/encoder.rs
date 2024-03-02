@@ -1,5 +1,10 @@
-use hal::digital::v2::InputPin;
+use defmt::*;
 
+use embassy_rp::gpio::Input;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+
+#[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Direction {
     Forward,
@@ -7,43 +12,28 @@ pub enum Direction {
     None,
 }
 
-const PIN_EDGE: u8 = 0b01;
-const PIN_MASK: u8 = 0b11;
-
-pub struct Encoder<CLK> {
-    pin_clk: CLK,
+pub struct Encoder {
     direction: Direction,
-    rotation: i32,
-    state: u8,
+    rotation: i16,
 }
 
-impl<CLK> Encoder<CLK>
-where
-    CLK: InputPin,
-{
-    pub fn new(pin: CLK) -> Self {
+pub type EncoderMutex = Mutex<CriticalSectionRawMutex, Encoder>;
+
+#[allow(dead_code)]
+impl Encoder {
+    pub const fn new() -> Self {
         Encoder {
-            pin_clk: pin,
             direction: Direction::None,
-            state: 0,
             rotation: 0,
         }
     }
-    pub fn read(&self) -> i32 {
+    pub fn read(&self) -> i16 {
         self.rotation
     }
-    pub fn read_reset(&mut self) -> i32 {
+    pub fn read_reset(&mut self) -> i16 {
         let rot = self.rotation;
         self.reset();
         rot
-    }
-
-    pub fn pin_mut(&mut self) -> &mut CLK {
-        &mut self.pin_clk
-    }
-
-    pub fn release(self) -> CLK {
-        self.pin_clk
     }
 
     pub fn reset(&mut self) {
@@ -57,14 +47,21 @@ where
     }
 
     pub fn update(&mut self) {
-        self.state = (self.state << 1) | self.pin_clk.is_high().unwrap_or_default() as u8;
-
-        if (self.state & PIN_MASK) == PIN_EDGE {
-            match self.direction {
-                Direction::Forward => self.rotation += 1,
-                Direction::Backward => self.rotation += 1,
-                Direction::None => (),
-            }
+        match self.direction {
+            Direction::Forward => self.rotation += 1,
+            Direction::Backward => self.rotation -= 1,
+            Direction::None => (),
         }
+    }
+}
+
+#[embassy_executor::task(pool_size = 6)]
+pub async fn encoder_task(encoder: &'static EncoderMutex, mut clk_pin: Input<'static>) {
+    info!("Starting encoder task");
+
+    loop {
+        clk_pin.wait_for_rising_edge().await;
+
+        encoder.lock().await.update()
     }
 }

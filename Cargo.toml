@@ -3,11 +3,13 @@ edition = "2021"
 name = "bodenbot-motor-controller"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+default-run = "bodenbot-motor-controller"
 
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-embedded-hal = { version = "0.2.5", features = ["unproven"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = "1.0"
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -20,14 +22,52 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 # rp2040-hal = { version="0.8", features=["rt", "critical-section-impl"] }
 # rp2040-boot2 = "0.2"
 # BSP for rp-pico
-rp-pico = "0.8"
+# rp-pico = "0.8"
 
 # use the BSP for KB2040
 # adafruit-kb2040 = "0.6.0"
 
-rotary-encoder-embedded = "0.2.0"
-# sx1509 = "0.2.0"
 fugit = { version = "0.3.7", features = ["defmt"] }
+fixed = { version = "1.23.1" }
+fixed-macro = "1.2"
+futures = { version = "0.3.17", default-features = false, features = [
+  "async-await",
+  "cfg-target-has-atomic",
+  "unstable",
+] }
+heapless = "0.8"
+
+[dependencies.embassy-embedded-hal]
+git = "https://github.com/embassy-rs/embassy.git"
+features = ["defmt"]
+
+[dependencies.embassy-sync]
+git = "https://github.com/embassy-rs/embassy.git"
+features = ["defmt"]
+
+[dependencies.embassy-executor]
+git = "https://github.com/embassy-rs/embassy.git"
+features = [
+  "arch-cortex-m",
+  "executor-thread",
+  "executor-interrupt",
+  "defmt",
+  "integrated-timers",
+]
+
+[dependencies.embassy-time]
+git = "https://github.com/embassy-rs/embassy.git"
+features = ["defmt", "defmt-timestamp-uptime"]
+
+[dependencies.embassy-rp]
+git = "https://github.com/embassy-rs/embassy.git"
+features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"]
+
+[dependencies.embassy-futures]
+git = "https://github.com/embassy-rs/embassy.git"
+
+[dependencies.embassy-usb]
+git = "https://github.com/embassy-rs/embassy.git"
 
 # cargo build/run
 [profile.dev]
