@@ -2,17 +2,11 @@
 //!
 //! This creates a USB serial port that echos. It will also print out logging information on a separate serial device
 
-#![no_std]
-#![no_main]
-
 use defmt::{info, panic};
-use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_rp::peripherals::USB;
-use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_time::Timer;
+use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
@@ -22,19 +16,17 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+#[embassy_executor::task]
+pub async fn serial_task(usb: USB) {
     info!("Hello there!");
 
-    let p = embassy_rp::init(Default::default());
-
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs);
+    let driver = Driver::new(usb, Irqs);
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
-    config.product = Some("USB-serial example");
+    config.product = Some("USB-serial motor controller");
     config.serial_number = Some("1234");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
@@ -53,7 +45,6 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
-    let mut state = State::new();
     let mut logger_state = State::new();
 
     let mut builder = Builder::new(
@@ -65,9 +56,6 @@ async fn main(_spawner: Spawner) {
         &mut [], // no msos descriptors
         &mut control_buf,
     );
-
-    // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
     // Create a class for the logger
     let logger_class = CdcAcmClass::new(&mut builder, &mut logger_state, 64);
@@ -82,32 +70,11 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
-    let mut led = Output::new(AnyPin::from(p.PIN_29), Level::High);
-
-    // Do stuff with the class!
-    let echo_fut = async {
-        loop {
-            class.wait_connection().await;
-            log::info!("Connected");
-            let _ = echo(&mut class).await;
-            log::info!("Disconnected");
-        }
-    };
-
-    let test_stuff = async {
-        let mut i = 0;
-        loop {
-            log::info!("Hello {}", i);
-            led.toggle();
-
-            i += 1;
-            Timer::after_secs(1).await;
-        }
-    };
+    log::info!("Serial started");
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join(test_stuff, join(usb_fut, join(echo_fut, log_fut))).await;
+    join(usb_fut, log_fut).await;
 }
 
 struct Disconnected {}
@@ -118,17 +85,5 @@ impl From<EndpointError> for Disconnected {
             EndpointError::BufferOverflow => panic!("Buffer overflow"),
             EndpointError::Disabled => Disconnected {},
         }
-    }
-}
-
-async fn echo<'d, T: Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
-) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        let data = &buf[..n];
-        info!("data: {:x}", data);
-        class.write_packet(data).await?;
     }
 }

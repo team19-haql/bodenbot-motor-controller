@@ -1,48 +1,56 @@
+use crate::encoder::Fixed;
+
 use embassy_time::Duration;
-use fixed::types::I24F8;
 use fixed_macro::fixed;
 
-const K_P: I24F8 = fixed!(0.5: I24F8);
-const K_I: I24F8 = fixed!(0.0: I24F8);
-const K_D: I24F8 = fixed!(0.0: I24F8);
-
-type Float = I24F8;
+const K_P: Fixed = fixed!(0.5: I16F16);
+const K_I: Fixed = fixed!(0.0: I16F16);
+const K_D: Fixed = fixed!(0.0: I16F16);
 
 pub struct Pid {
-    setpoint: Float,
-    previous_error: Float,
-    integral: Float,
-    output: Float,
-}
-
-pub trait MotorControl {
-    fn set_target(&mut self, target: Float);
-    fn update(&mut self, measured_value: Float, delta: Duration) -> Float;
+    target_value: Fixed,
+    previous_value: Fixed,
+    integral: Fixed,
+    output: Fixed,
+    measured_value: Fixed,
 }
 
 impl Pid {
     pub fn new() -> Self {
         Self {
-            setpoint: fixed!(0.0: I24F8),
-            previous_error: fixed!(0.0: I24F8),
-            integral: fixed!(0.0: I24F8),
-            output: fixed!(0.0: I24F8),
+            target_value: Fixed::from_num(0),
+            previous_value: Fixed::from_num(0),
+            integral: Fixed::from_num(0),
+            output: Fixed::from_num(0),
+            measured_value: Fixed::from_num(0),
         }
     }
-}
 
-impl MotorControl for Pid {
-    fn set_target(&mut self, target: Float) {
-        self.setpoint = target;
+    pub fn set_target(&mut self, target: Fixed) {
+        self.target_value = target;
     }
 
-    fn update(&mut self, measured_value: Float, delta: Duration) -> Float {
-        let error = self.setpoint - measured_value;
-        let proportional = error;
-        let dt = delta.as_millis() as i32;
-        self.integral += error * dt;
-        let derivative = (error - self.previous_error) / dt;
-        self.previous_error = error;
+    pub fn get_measure_value(&self) -> Fixed {
+        self.measured_value
+    }
+
+    pub fn update(&mut self, rotations: Fixed, delta: Duration) -> Fixed {
+        let dt = delta.as_micros() as i32; // should not be longer than a few milliseconds
+        let angular_velocity = rotations / dt;
+        self.measured_value = angular_velocity;
+
+        let error = self.target_value - angular_velocity;
+        let proportional = error; // Proportional term
+        self.integral += error * dt; // Integral term
+
+        // Windup guard
+        // 80 RPM -> 0.00838 rad/ms
+        self.integral = self
+            .integral
+            .clamp(-fixed!(0.05: I16F16), fixed!(0.05: I16F16));
+
+        let derivative = (self.previous_value - angular_velocity) / dt; // Derivative term
+        self.previous_value = angular_velocity;
         self.output += K_P * proportional + K_I * self.integral + K_D * derivative;
         self.output
     }

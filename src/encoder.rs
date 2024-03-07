@@ -4,6 +4,11 @@ use embassy_rp::gpio::Input;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
+pub use fixed::types::I16F16 as Fixed;
+
+const RATIO: i32 = 100;
+const PPR: i32 = 16 * RATIO;
+
 #[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Direction {
@@ -14,7 +19,7 @@ pub enum Direction {
 
 pub struct Encoder {
     direction: Direction,
-    rotation: i16,
+    pulses: i32,
 }
 
 pub type EncoderMutex = Mutex<CriticalSectionRawMutex, Encoder>;
@@ -24,20 +29,20 @@ impl Encoder {
     pub const fn new() -> Self {
         Encoder {
             direction: Direction::None,
-            rotation: 0,
+            pulses: 0,
         }
     }
-    pub fn read(&self) -> i16 {
-        self.rotation
+    pub fn read(&self) -> Fixed {
+        Fixed::from_num(self.pulses) / PPR
     }
-    pub fn read_reset(&mut self) -> i16 {
-        let rot = self.rotation;
+    pub fn read_reset(&mut self) -> Fixed {
+        let rot = self.read();
         self.reset();
         rot
     }
 
     pub fn reset(&mut self) {
-        self.rotation = 0;
+        self.pulses = 0;
     }
     pub fn set_direction(&mut self, direction: Direction) {
         self.direction = direction;
@@ -48,8 +53,8 @@ impl Encoder {
 
     pub fn update(&mut self) {
         match self.direction {
-            Direction::Forward => self.rotation += 1,
-            Direction::Backward => self.rotation -= 1,
+            Direction::Forward => self.pulses += 1,
+            Direction::Backward => self.pulses -= 1,
             Direction::None => (),
         }
     }

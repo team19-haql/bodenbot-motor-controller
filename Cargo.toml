@@ -36,6 +36,7 @@ futures = { version = "0.3.17", default-features = false, features = [
   "unstable",
 ] }
 heapless = "0.8"
+log = "0.4.21"
 
 [dependencies.embassy-embedded-hal]
 git = "https://github.com/embassy-rs/embassy.git"
@@ -67,6 +68,9 @@ features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"]
 git = "https://github.com/embassy-rs/embassy.git"
 
 [dependencies.embassy-usb]
+git = "https://github.com/embassy-rs/embassy.git"
+
+[dependencies.embassy-usb-logger]
 git = "https://github.com/embassy-rs/embassy.git"
 
 # cargo build/run
