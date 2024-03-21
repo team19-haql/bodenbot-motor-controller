@@ -1,8 +1,10 @@
 use defmt::*;
 
-use embassy_rp::gpio::Input;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_executor::Spawner;
+use embassy_rp::gpio::{AnyPin, Input, Pull};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use heapless::Vec;
 
 pub use fixed::types::I16F16 as Fixed;
 
@@ -10,19 +12,20 @@ const RATIO: i32 = 100;
 const PPR: i32 = 16 * RATIO;
 
 #[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Direction {
     Forward,
     Backward,
     None,
 }
 
+#[derive(Debug)]
 pub struct Encoder {
     direction: Direction,
     pulses: i32,
 }
 
-pub type EncoderMutex = Mutex<ThreadModeRawMutex, Encoder>;
+pub type EncoderMutex = Mutex<CriticalSectionRawMutex, Encoder>;
 
 #[allow(dead_code)]
 impl Encoder {
@@ -61,7 +64,7 @@ impl Encoder {
 }
 
 #[embassy_executor::task(pool_size = 6)]
-pub async fn encoder_task(encoder: &'static EncoderMutex, mut clk_pin: Input<'static>) {
+async fn encoder_task(encoder: &'static EncoderMutex, mut clk_pin: Input<'static>) {
     info!("Starting encoder task");
 
     loop {
@@ -69,4 +72,24 @@ pub async fn encoder_task(encoder: &'static EncoderMutex, mut clk_pin: Input<'st
 
         encoder.lock().await.update()
     }
+}
+
+pub async fn spawn_encoder<P>(clk_pin: P) -> &'static EncoderMutex
+where
+    P: Into<AnyPin>,
+{
+    let clk_pin = Input::new(clk_pin.into(), Pull::None);
+    static mut ENCODERS: Vec<EncoderMutex, 6> = Vec::new();
+
+    let encoders = unsafe { &mut ENCODERS };
+
+    if encoders.push(EncoderMutex::new(Encoder::new())).is_err() {
+        defmt::panic!("Too many encoders");
+    }
+
+    let id = encoders.len() - 1;
+    Spawner::for_current_executor()
+        .await
+        .must_spawn(encoder_task(&encoders[id], clk_pin));
+    &encoders[id]
 }

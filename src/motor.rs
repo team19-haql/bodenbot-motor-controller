@@ -1,14 +1,11 @@
-use crate::encoder::Fixed;
-use crate::encoder::{Direction, EncoderMutex};
+use crate::encoder::{spawn_encoder, Direction, Fixed};
 use crate::pwm::PwmSignal;
-
 use crate::utils::Mutex;
-use core::cmp::Ordering;
-use embassy_rp::gpio::Output;
+use embassy_rp::gpio::{AnyPin, Output};
 use embassy_time::{Duration, Instant, Ticker};
 use fixed_macro::fixed;
 
-const K_P: Fixed = fixed!(0.5: I16F16);
+const K_P: Fixed = fixed!(8.0: I16F16);
 const K_I: Fixed = fixed!(0.0: I16F16);
 const K_D: Fixed = fixed!(0.0: I16F16);
 
@@ -80,13 +77,17 @@ impl Driver {
     }
 }
 
-pub async fn motor_driver<'a>(
+pub async fn motor_driver<'a, P>(
     pwm_signal: &'a PwmSignal,
-    encoder: &'a EncoderMutex,
     driver: &'a DriverMutex,
     mut direction: Output<'a>,
-) {
-    let mut ticker = Ticker::every(Duration::from_hz(200));
+    clk_pin: P,
+) -> !
+where
+    P: Into<AnyPin>,
+{
+    let encoder = spawn_encoder(clk_pin).await;
+    let mut ticker = Ticker::every(Duration::from_hz(100));
     let mut last_update = Instant::now();
     loop {
         let value = encoder.lock().await.read_reset();
@@ -95,18 +96,21 @@ pub async fn motor_driver<'a>(
             .saturating_mul(Fixed::from_num(1 << 8))
             .to_num::<i32>();
 
-        match control.cmp(&0) {
-            Ordering::Greater => {
-                direction.set_low();
-                encoder.lock().await.set_direction(Direction::Forward);
-            }
-            Ordering::Less => {
-                direction.set_high();
-                encoder.lock().await.set_direction(Direction::Backward);
-            }
-            Ordering::Equal => {
-                encoder.lock().await.set_direction(Direction::None);
-            }
+        let _target = driver
+            .lock()
+            .await
+            .get_target()
+            .saturating_mul(Fixed::from_num(1 << 8))
+            .to_num::<i32>();
+
+        if control > 2000 {
+            direction.set_low();
+            encoder.lock().await.set_direction(Direction::Forward);
+        } else if control < -2000 {
+            direction.set_high();
+            encoder.lock().await.set_direction(Direction::Backward);
+        } else {
+            encoder.lock().await.set_direction(Direction::None);
         }
 
         pwm_signal.signal(control.unsigned_abs() as u16);

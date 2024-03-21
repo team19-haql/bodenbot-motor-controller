@@ -3,11 +3,10 @@ use crate::encoder::Fixed;
 use crate::motor;
 use crate::motor::DriverMutex;
 use defmt::*;
-use embassy_rp::peripherals::{self as p, I2C0, I2C1};
+use embassy_rp::peripherals::{self as p, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 
 bind_interrupts!(struct Irqs {
-    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
 
@@ -34,9 +33,12 @@ registers!(
     FAN1: 0x21,
 );
 
-async fn read_motor(motor: &DriverMutex) -> [u8; 4] {
-    let value = motor.lock().await.get_measure_value().to_le_bytes();
-    info!("Reading from motor: {:?}", value);
+fn read_motor(motor: &DriverMutex) -> [u8; 4] {
+    let value = if let Ok(m) = motor.try_lock() {
+        m.get_measure_value().to_le_bytes()
+    } else {
+        [0, 0, 0, 0]
+    };
     value
 }
 
@@ -76,7 +78,7 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     Err(e) => error!("error while responding {}", e),
                 }
             },
-            Ok(i2c_slave::Command::Write(len)) => {
+            Ok(i2c_slave::Command::Write(_len)) => {
                 match buf[0] {
                     // Set the state
                     MOTOR0 => {
@@ -103,14 +105,13 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     _ => error!("Invalid Write {:x}", buf[0]),
                 }
             }
-            Ok(i2c_slave::Command::WriteRead(len)) => {
+            Ok(i2c_slave::Command::WriteRead(_len)) => {
                 macro_rules! motor_read {
                     ($driver:expr) => {{
-                        match dev
-                            .respond_and_fill(&read_motor(&motor::MOTOR0_DRIVER).await, 0x00)
-                            .await
-                        {
+                        let values = read_motor(&motor::MOTOR0_DRIVER);
+                        match dev.respond_and_fill(&values, 0x00).await {
                             Ok(read_status) => {
+                                info!("Reading from motor: {:?}", values);
                                 info!("response read status {}", read_status)
                             }
                             Err(e) => error!("error while responding {}", e),
@@ -128,10 +129,6 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     FAN0 => defmt::todo!("Set FAN 0"),
                     FAN1 => defmt::todo!("Set FAN 1"),
                     // example
-                    0xC2 => match dev.respond_and_fill(&[0xf5], 0x00).await {
-                        Ok(read_status) => info!("response read status {}", read_status),
-                        Err(e) => error!("error while responding {}", e),
-                    },
                     x => error!("Invalid Write Read {:x}", x),
                 }
             }
