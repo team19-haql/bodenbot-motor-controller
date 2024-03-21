@@ -1,23 +1,27 @@
-//! Blinks the LED on a Pico board
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for the on-board LED.
-
 #![no_std]
 #![no_main]
 
 mod encoder;
+mod i2c;
 mod motor;
+mod pwm;
 mod serial;
-// mod sx1509;
+mod utils;
 
 use defmt::*;
-use embassy_executor::Spawner;
+use embassy_executor::{Executor, Spawner};
 use embassy_rp::gpio;
-use embassy_rp::pwm::{Config, Pwm};
-use embassy_time::{Duration, Instant, Ticker};
-use fixed::traits::FromFixed;
-use gpio::{AnyPin, Input};
+use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::signal::Signal;
+use embassy_time::{Duration, Ticker, Timer};
+use fixed_macro::fixed;
+use gpio::{AnyPin, Input, Output};
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+static mut CORE1_STACK: Stack<4096> = Stack::new();
+static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -25,52 +29,93 @@ async fn main(spawner: Spawner) {
     info!("Start Motor Controller!");
 
     // start serial
-    unwrap!(spawner.spawn(serial::serial_task(p.USB)));
-    log::info!("Start motor controllr serial");
+    spawner.must_spawn(serial::serial_task(p.USB));
+    // // start i2c
+    spawner.must_spawn(i2c::device_task(p.I2C1, p.PIN_26, p.PIN_27));
+
+    // spawn_core1(
+    //     p.CORE1,
+    //     unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+    //     move || {
+    //         let executor1 = EXECUTOR1.init(Executor::new());
+    //         executor1.run(|spawner| {
+    //             spawner.must_spawn(i2c::device_task(p.I2C1, p.PIN_26, p.PIN_27));
+    //         });
+    //     },
+    // );
 
     // create encoder
     use crate::encoder::{encoder_task, Encoder, EncoderMutex};
     static ENC: EncoderMutex = EncoderMutex::new(Encoder::new());
-    let clk_pin = Input::new(AnyPin::from(p.PIN_0), gpio::Pull::None);
-    ENC.lock().await.set_direction(encoder::Direction::Forward);
-    unwrap!(spawner.spawn(encoder_task(&ENC, clk_pin)));
-    // create pwm
-    let mut c = Config::default();
-    c.top = 0x8000;
-    c.compare_b = 0x0;
-    let mut pwm = Pwm::new_output_b(p.PWM_CH6, p.PIN_29, c.clone());
-    let mut btn = Input::new(AnyPin::from(p.PIN_9), gpio::Pull::Up);
+    let clk_pin = Input::new(AnyPin::from(p.PIN_10), gpio::Pull::None);
+    spawner.must_spawn(encoder_task(&ENC, clk_pin));
 
-    let mut motor_control = motor::Pid::new();
-
-    let mut ticker = Ticker::every(Duration::from_hz(10));
-    let mut last_time = Instant::now();
-    loop {
-        // led.toggle();
-        let value = ENC.lock().await.read_reset();
-
-        // update pid
-        let current_time = Instant::now();
-        let control = motor_control.update(value, current_time - last_time);
-
-        log::info!("control: {:?}", control);
-
-        last_time = current_time;
-
-        // update pwm
-        c.compare_b = u16::from_fixed(control).min(c.top);
-        pwm.set_config(&c);
-
-        // Timer::after_millis(20).await;
-        ticker.next().await;
-    }
-
-    // motor_service!(
-    //     motor1: (PIN_2, PIN_0, PIN_1, PWM_CH0),
-    //     motor2: (PIN_5, PIN_3, PIN_4, PWM_CH1),
-    //     motor3: (PIN_8, PIN_6, PIN_7, PWM_CH2),
-    //     motor4: (PIN_11, PIN_9, PIN_10, PWM_CH3),
-    //     motor5: (PIN_14, PIN_12, PIN_13, PWM_CH6),
-    //     motor6: (PIN_17, PIN_15, PIN_16, PWM_CH0),
-    // );
+    let btn_signal: Signal<NoopRawMutex, ()> = Signal::new();
+    let direction_pin = Output::new(AnyPin::from(p.PIN_0), gpio::Level::Low);
+    join!(
+        // create pwm worker
+        pwm::slice_worker_b(p.PWM_CH0, p.PIN_1, &pwm::MOTOR0_PWM),
+        // read button
+        async {
+            let mut btn = Input::new(AnyPin::from(p.PIN_2), gpio::Pull::Up);
+            loop {
+                btn.wait_for_falling_edge().await;
+                info!("press");
+                btn_signal.signal(());
+                Timer::after_millis(50).await;
+                btn.wait_for_rising_edge().await;
+                Timer::after_millis(50).await;
+            }
+        },
+        // set pwm value with btn
+        async {
+            loop {
+                btn_signal.wait().await;
+                motor::MOTOR0_DRIVER
+                    .lock()
+                    .await
+                    .set_target(fixed!(0.25: I16F16));
+                btn_signal.wait().await;
+                motor::MOTOR0_DRIVER
+                    .lock()
+                    .await
+                    .set_target(fixed!(0.5: I16F16));
+                btn_signal.wait().await;
+                motor::MOTOR0_DRIVER
+                    .lock()
+                    .await
+                    .set_target(fixed!(0.75: I16F16));
+                btn_signal.wait().await;
+                motor::MOTOR0_DRIVER
+                    .lock()
+                    .await
+                    .set_target(fixed!(0: I16F16));
+            }
+        },
+        // motor driver
+        motor::motor_driver(&pwm::MOTOR0_PWM, &ENC, &motor::MOTOR0_DRIVER, direction_pin),
+        // blink LED
+        async {
+            let mut led = Output::new(AnyPin::from(p.PIN_25), gpio::Level::Low);
+            let mut ticker = Ticker::every(Duration::from_hz(1));
+            loop {
+                led.toggle();
+                ticker.next().await;
+            }
+        },
+        // logger
+        async {
+            let mut ticker = Ticker::every(Duration::from_hz(1));
+            loop {
+                let value = motor::MOTOR0_DRIVER.lock().await.get_target();
+                info!(
+                    "value: {}",
+                    (value.saturating_mul(encoder::Fixed::from_num(1000))).to_num::<i32>() as f32
+                        / 1000.0
+                );
+                ticker.next().await;
+            }
+        },
+    )
+    .await;
 }

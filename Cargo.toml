@@ -37,6 +37,8 @@ futures = { version = "0.3.17", default-features = false, features = [
 ] }
 heapless = "0.8"
 log = "0.4.21"
+static_cell = "2.0.0"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 
 [dependencies.embassy-embedded-hal]
 git = "https://github.com/embassy-rs/embassy.git"
@@ -49,6 +51,7 @@ features = ["defmt"]
 [dependencies.embassy-executor]
 git = "https://github.com/embassy-rs/embassy.git"
 features = [
+  "task-arena-size-32768",
   "arch-cortex-m",
   "executor-thread",
   "executor-interrupt",

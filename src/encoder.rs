@@ -1,7 +1,7 @@
 use defmt::*;
 
 use embassy_rp::gpio::Input;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 
 pub use fixed::types::I16F16 as Fixed;
@@ -22,7 +22,7 @@ pub struct Encoder {
     pulses: i32,
 }
 
-pub type EncoderMutex = Mutex<CriticalSectionRawMutex, Encoder>;
+pub type EncoderMutex = Mutex<ThreadModeRawMutex, Encoder>;
 
 #[allow(dead_code)]
 impl Encoder {
