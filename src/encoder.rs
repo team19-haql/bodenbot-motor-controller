@@ -36,7 +36,7 @@ impl Encoder {
         }
     }
     pub fn read(&self) -> Fixed {
-        Fixed::from_num(self.pulses) / PPR
+        Fixed::from_num(self.pulses) * (Fixed::PI * 2 / PPR)
     }
     pub fn read_reset(&mut self) -> Fixed {
         let rot = self.read();
