@@ -67,6 +67,30 @@ async fn main(spawner: Spawner) {
     join!(
         // create pwm worker
         pwm::slice_worker_b(p.PWM_CH0, p.PIN_1, &pwm::MOTOR0_PWM),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH0,
+        //     p.PIN_16,
+        //     &pwm::MOTOR5_PWM,
+        //     p.PIN_1,
+        //     &pwm::MOTOR0_PWM
+        // ),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH1,
+        //     p.PIN_18,
+        //     &pwm::LED0_PWM,
+        //     p.PIN_19,
+        //     &pwm::FAN0_PWM
+        // ),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH2,
+        //     p.PIN_4,
+        //     &pwm::MOTOR1_PWM,
+        //     p.PIN_21,
+        //     &pwm::FAN1_PWM
+        // ),
+        // pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2_PWM),
+        // pwm::slice_worker_a(p.PWM_CH5, p.PIN_10, &pwm::MOTOR3_PWM),
+        // pwm::slice_worker_b(p.PWM_CH6, p.PIN_13, &pwm::MOTOR4_PWM),
         // motor driver
         motor::motor_driver(
             &pwm::MOTOR0_PWM,

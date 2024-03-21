@@ -2,6 +2,7 @@
 use crate::encoder::Fixed;
 use crate::motor;
 use crate::motor::DriverMutex;
+use crate::pwm;
 use defmt::*;
 use embassy_rp::peripherals::{self as p, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
@@ -28,7 +29,7 @@ registers!(
     MOTOR3: 0x03,
     MOTOR4: 0x04,
     MOTOR5: 0x05,
-    LED: 0x10,
+    LED0: 0x10,
     FAN0: 0x20,
     FAN1: 0x21,
 );
@@ -99,9 +100,9 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     MOTOR5 => {
                         write_motor(&motor::MOTOR5_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
                     }
-                    LED => defmt::todo!("Set LED"),
-                    FAN0 => defmt::todo!("Set FAN 0"),
-                    FAN1 => defmt::todo!("Set FAN 1"),
+                    LED0 => pwm::LED0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
+                    FAN0 => pwm::FAN0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
+                    FAN1 => pwm::FAN1_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     _ => error!("Invalid Write {:x}", buf[0]),
                 }
             }
@@ -125,9 +126,9 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     MOTOR3 => motor_read!(&motor::MOTOR3_DRIVER),
                     MOTOR4 => motor_read!(&motor::MOTOR4_DRIVER),
                     MOTOR5 => motor_read!(&motor::MOTOR5_DRIVER),
-                    LED => defmt::todo!("Set LED"),
-                    FAN0 => defmt::todo!("Set FAN 0"),
-                    FAN1 => defmt::todo!("Set FAN 1"),
+                    LED0 => defmt::todo!("Read LED"),
+                    FAN0 => defmt::todo!("Read FAN 0"),
+                    FAN1 => defmt::todo!("Read FAN 1"),
                     // example
                     x => error!("Invalid Write Read {:x}", x),
                 }
