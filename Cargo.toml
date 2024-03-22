@@ -39,6 +39,8 @@ heapless = "0.8"
 log = "0.4.21"
 static_cell = "2.0.0"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
+pio = "0.2.1"
+pio-proc = "0.2.2"
 
 [dependencies.embassy-embedded-hal]
 git = "https://github.com/embassy-rs/embassy.git"

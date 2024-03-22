@@ -86,6 +86,8 @@ where
     }
 
     let id = encoders.len() - 1;
+    // crate::EXECUTOR_MED
+    //     .spawner()
     Spawner::for_current_executor()
         .await
         .must_spawn(encoder_task(&encoders[id], clk_pin));

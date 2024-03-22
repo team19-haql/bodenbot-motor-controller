@@ -62,44 +62,43 @@ async fn main(spawner: Spawner) {
 
     // Set to watchdog to reset if it's not fed within 1.05 seconds, and start it
     let mut watchdog = Watchdog::new(p.WATCHDOG);
-    watchdog.start(Duration::from_secs(5));
+    // watchdog.start(Duration::from_secs(10));
 
-    // create encoder
     let btn_signal: Signal<NoopRawMutex, ()> = Signal::new();
     join!(
         // create pwm worker
         // pwm::slice_worker_b(p.PWM_CH0, p.PIN_1, &pwm::MOTOR0_PWM),
-        pwm::slice_worker_ab(
-            p.PWM_CH0,
-            p.PIN_16,
-            &pwm::MOTOR5_PWM,
-            p.PIN_1,
-            &pwm::MOTOR0_PWM
-        ),
-        pwm::slice_worker_ab(
-            p.PWM_CH1,
-            p.PIN_18,
-            &pwm::LED0_PWM,
-            p.PIN_19,
-            &pwm::FAN0_PWM
-        ),
-        pwm::slice_worker_ab(
-            p.PWM_CH2,
-            p.PIN_4,
-            &pwm::MOTOR1_PWM,
-            p.PIN_21,
-            &pwm::FAN1_PWM
-        ),
-        pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2_PWM),
-        pwm::slice_worker_a(p.PWM_CH5, p.PIN_10, &pwm::MOTOR3_PWM),
-        pwm::slice_worker_b(p.PWM_CH6, p.PIN_13, &pwm::MOTOR4_PWM),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH0,
+        //     p.PIN_16,
+        //     &pwm::MOTOR5_PWM,
+        //     p.PIN_1,
+        //     &pwm::MOTOR0_PWM
+        // ),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH1,
+        //     p.PIN_18,
+        //     &pwm::LED0_PWM,
+        //     p.PIN_19,
+        //     &pwm::FAN0_PWM
+        // ),
+        // pwm::slice_worker_ab(
+        //     p.PWM_CH2,
+        //     p.PIN_4,
+        //     &pwm::MOTOR1_PWM,
+        //     p.PIN_21,
+        //     &pwm::FAN1_PWM
+        // ),
+        // pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2_PWM),
+        // pwm::slice_worker_a(p.PWM_CH5, p.PIN_10, &pwm::MOTOR3_PWM),
+        // pwm::slice_worker_b(p.pwm_ch6, p.pin_13, &pwm::motor4_pwm),
         // motor drivers
         motor::motor_driver(&pwm::MOTOR0_PWM, &motor::MOTOR0_DRIVER, p.PIN_0, p.PIN_2,),
-        motor::motor_driver(&pwm::MOTOR1_PWM, &motor::MOTOR1_DRIVER, p.PIN_3, p.PIN_5,),
-        motor::motor_driver(&pwm::MOTOR2_PWM, &motor::MOTOR2_DRIVER, p.PIN_6, p.PIN_8,),
-        motor::motor_driver(&pwm::MOTOR3_PWM, &motor::MOTOR3_DRIVER, p.PIN_9, p.PIN_11,),
-        motor::motor_driver(&pwm::MOTOR4_PWM, &motor::MOTOR4_DRIVER, p.PIN_12, p.PIN_14,),
-        motor::motor_driver(&pwm::MOTOR5_PWM, &motor::MOTOR5_DRIVER, p.PIN_15, p.PIN_17,),
+        // motor::motor_driver(&pwm::MOTOR1_PWM, &motor::MOTOR1_DRIVER, p.PIN_3, p.PIN_5,),
+        // motor::motor_driver(&pwm::MOTOR2_PWM, &motor::MOTOR2_DRIVER, p.PIN_6, p.PIN_8,),
+        // motor::motor_driver(&pwm::MOTOR3_PWM, &motor::MOTOR3_DRIVER, p.PIN_9, p.PIN_11,),
+        // motor::motor_driver(&pwm::MOTOR4_PWM, &motor::MOTOR4_DRIVER, p.PIN_12, p.PIN_14,),
+        // motor::motor_driver(&pwm::MOTOR5_PWM, &motor::MOTOR5_DRIVER, p.PIN_15, p.PIN_17,),
         // read button
         async {
             let mut btn = Input::new(AnyPin::from(p.PIN_28), gpio::Pull::Up);
@@ -121,12 +120,22 @@ async fn main(spawner: Spawner) {
                 ticker.next().await;
             }
         },
+        // pulse gen
+        async {
+            let mut pulse = Output::new(AnyPin::from(p.PIN_5), gpio::Level::Low);
+            let mut ticker = Ticker::every(Duration::from_hz(20000 * 4));
+            loop {
+                pulse.toggle();
+                ticker.next().await;
+            }
+        },
         // logger
         async {
+            let mut ticker = Ticker::every(Duration::from_hz(1));
             loop {
-                btn_signal.wait().await;
-                let value = motor::MOTOR0_DRIVER.lock().await.get_target();
+                let value = motor::MOTOR0_DRIVER.lock().await.get_measure_value();
                 defmt::info!("value: {}", value.to_num::<f32>());
+                ticker.next().await;
             }
         },
     )

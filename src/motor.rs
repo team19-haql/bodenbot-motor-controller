@@ -115,6 +115,7 @@ where
         } else {
             encoder.lock().await.set_direction(Direction::None);
         }
+        encoder.lock().await.set_direction(Direction::Forward);
 
         pwm_signal.signal(control.unsigned_abs() as u16);
 
