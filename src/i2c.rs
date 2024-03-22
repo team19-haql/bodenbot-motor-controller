@@ -3,7 +3,6 @@ use crate::encoder::Fixed;
 use crate::motor;
 use crate::motor::DriverMutex;
 use crate::pwm;
-use defmt::*;
 use embassy_rp::peripherals::{self as p, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 
@@ -37,6 +36,7 @@ registers!(
 fn read_motor(motor: &DriverMutex) -> [u8; 4] {
     let value = if let Ok(m) = motor.try_lock() {
         m.get_measure_value().to_le_bytes()
+        // m.get_target().to_le_bytes()
     } else {
         [0, 0, 0, 0]
     };
@@ -44,14 +44,13 @@ fn read_motor(motor: &DriverMutex) -> [u8; 4] {
 }
 
 async fn write_motor(motor: &DriverMutex, value: [u8; 4]) {
-    info!("Writing to motor: {:?}", value);
     let value = Fixed::from_le_bytes(value);
     motor.lock().await.set_target(value);
 }
 
 #[embassy_executor::task]
 pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
-    info!("I2C start");
+    defmt::info!("I2C start");
     log::info!("I2C Device start");
 
     let mut config = i2c_slave::Config::default();
@@ -63,20 +62,20 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
         let mut buf = [0u8; 128];
         match dev.listen(&mut buf).await {
             Ok(i2c_slave::Command::GeneralCall(len)) => {
-                info!("Device received general call write: {}", buf[..len])
+                defmt::info!("Device received general call write: {}", buf[..len])
             }
             Ok(i2c_slave::Command::Read) => loop {
-                warn!("Read command not used");
+                defmt::warn!("Read command not used");
                 match dev.respond_to_read(&[0x73]).await {
                     Ok(x) => match x {
                         i2c_slave::ReadStatus::Done => break,
                         i2c_slave::ReadStatus::NeedMoreBytes => (),
                         i2c_slave::ReadStatus::LeftoverBytes(x) => {
-                            info!("tried to write {} extra bytes", x);
+                            defmt::info!("tried to write {} extra bytes", x);
                             break;
                         }
                     },
-                    Err(e) => error!("error while responding {}", e),
+                    Err(e) => defmt::error!("error while responding {}", e),
                 }
             },
             Ok(i2c_slave::Command::Write(_len)) => {
@@ -103,19 +102,16 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     LED0 => pwm::LED0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN0 => pwm::FAN0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN1 => pwm::FAN1_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
-                    _ => error!("Invalid Write {:x}", buf[0]),
+                    _ => defmt::error!("Invalid Write {:x}", buf[0]),
                 }
             }
             Ok(i2c_slave::Command::WriteRead(_len)) => {
                 macro_rules! motor_read {
                     ($driver:expr) => {{
-                        let values = read_motor(&motor::MOTOR0_DRIVER);
+                        let values = read_motor($driver);
                         match dev.respond_and_fill(&values, 0x00).await {
-                            Ok(read_status) => {
-                                info!("Reading from motor: {:?}", values);
-                                info!("response read status {}", read_status)
-                            }
-                            Err(e) => error!("error while responding {}", e),
+                            Ok(_read_status) => {}
+                            Err(e) => defmt::error!("error while responding {}", e),
                         }
                     }};
                 }
@@ -130,10 +126,10 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     FAN0 => defmt::todo!("Read FAN 0"),
                     FAN1 => defmt::todo!("Read FAN 1"),
                     // example
-                    x => error!("Invalid Write Read {:x}", x),
+                    x => defmt::error!("Invalid Write Read {:x}", x),
                 }
             }
-            Err(e) => error!("{}", e),
+            Err(e) => defmt::error!("{}", e),
         }
     }
 }

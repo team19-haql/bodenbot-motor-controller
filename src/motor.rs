@@ -1,7 +1,7 @@
 use crate::encoder::{spawn_encoder, Direction, Fixed};
 use crate::pwm::PwmSignal;
 use crate::utils::Mutex;
-use embassy_rp::gpio::{AnyPin, Output};
+use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_time::{Duration, Instant, Ticker};
 use fixed_macro::fixed;
 
@@ -41,7 +41,7 @@ impl Driver {
         self.target_value = target;
     }
 
-    pub fn get_target(&mut self) -> Fixed {
+    pub fn get_target(&self) -> Fixed {
         self.target_value
     }
 
@@ -59,7 +59,7 @@ impl Driver {
 
         let error = self.target_value - angular_velocity;
         let proportional = error; // Proportional term
-        self.integral += error.saturating_mul(dt); // Integral term
+        self.integral = error.saturating_mul_add(dt, self.integral); // Integral term
 
         // Windup guard
         // 80 RPM -> 0.00838 rad/ms
@@ -69,24 +69,27 @@ impl Driver {
 
         let derivative = (self.previous_value - angular_velocity) / dt; // Derivative term
         self.previous_value = angular_velocity;
-        self.output += K_P.saturating_mul_add(
-            proportional,
-            K_I.saturating_mul_add(self.integral, K_D.saturating_mul(derivative)),
-        );
+        self.output = K_P
+            .saturating_mul(proportional)
+            .saturating_add(K_I.saturating_mul(self.integral))
+            .saturating_add(K_D.saturating_mul(derivative))
+            .saturating_add(self.output);
         self.output
     }
 }
 
-pub async fn motor_driver<'a, P>(
+pub async fn motor_driver<'a, D, P>(
     pwm_signal: &'a PwmSignal,
     driver: &'a DriverMutex,
-    mut direction: Output<'a>,
-    clk_pin: P,
+    direction: D,
+    enc_pin: P,
 ) -> !
 where
+    D: Into<AnyPin>,
     P: Into<AnyPin>,
 {
-    let encoder = spawn_encoder(clk_pin).await;
+    let mut direction = Output::new(direction.into(), Level::Low);
+    let encoder = spawn_encoder(enc_pin).await;
     let mut ticker = Ticker::every(Duration::from_hz(100));
     let mut last_update = Instant::now();
     loop {

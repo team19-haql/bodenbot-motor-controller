@@ -5,7 +5,6 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -24,7 +23,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    info!("Hello there!");
+    defmt::info!("Hello there!");
 
     let p = embassy_rp::init(Default::default());
 
@@ -128,7 +127,7 @@ async fn echo<'d, T: Instance + 'd>(
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
+        defmt::info!("data: {:x}", data);
         class.write_packet(data).await?;
     }
 }

@@ -2,7 +2,6 @@
 //!
 //! This creates a USB serial port that echos. It will also print out logging information on a separate serial device
 
-use defmt::info;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
@@ -14,7 +13,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 pub async fn serial_task(usb: USB) {
-    info!("Starting USB serial logger");
+    defmt::info!("Starting USB serial logger");
     // Create the driver, from the HAL.
     let driver = Driver::new(usb, Irqs);
 

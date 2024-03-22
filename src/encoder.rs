@@ -1,5 +1,3 @@
-use defmt::*;
-
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Input, Pull};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -65,7 +63,7 @@ impl Encoder {
 
 #[embassy_executor::task(pool_size = 6)]
 async fn encoder_task(encoder: &'static EncoderMutex, mut clk_pin: Input<'static>) {
-    info!("Starting encoder task");
+    defmt::info!("Starting encoder task");
 
     loop {
         clk_pin.wait_for_rising_edge().await;
