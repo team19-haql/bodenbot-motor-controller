@@ -121,14 +121,14 @@ async fn main(spawner: Spawner) {
             }
         },
         // logger
-        async {
-            let mut ticker = Ticker::every(Duration::from_hz(1));
-            loop {
-                let value = motor::MOTOR0_DRIVER.lock().await.get_measure_value();
-                defmt::info!("value: {}", value.to_num::<f32>());
-                ticker.next().await;
-            }
-        },
+        // async {
+        //     let mut ticker = Ticker::every(Duration::from_hz(1));
+        //     loop {
+        //         let value = motor::MOTOR0_DRIVER.lock().await.get_measure_value();
+        //         defmt::info!("value: {}", value.to_num::<f32>());
+        //         ticker.next().await;
+        //     }
+        // },
     )
     .await;
 }

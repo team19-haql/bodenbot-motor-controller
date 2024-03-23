@@ -15,11 +15,36 @@ bind_interrupts!(struct Irqs {
     PIO1_IRQ_0 => InterruptHandler<PIO1>;
 });
 
-struct PioEncoder<'d, T: Instance, const SM: usize> {
+struct PioEncoderInner<'d, T: Instance, const SM: usize> {
     sm: StateMachine<'d, T, SM>,
 }
 
-impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Direction {
+    Forward,
+    Backward,
+    None,
+}
+
+enum PioEncoder<'d> {
+    P0SM0(PioEncoderInner<'d, PIO0, 0>),
+    P0SM1(PioEncoderInner<'d, PIO0, 1>),
+    P0SM2(PioEncoderInner<'d, PIO0, 2>),
+    P0SM3(PioEncoderInner<'d, PIO0, 3>),
+    P1SM0(PioEncoderInner<'d, PIO1, 0>),
+    P1SM1(PioEncoderInner<'d, PIO1, 1>),
+    P1SM2(PioEncoderInner<'d, PIO1, 2>),
+    P1SM3(PioEncoderInner<'d, PIO1, 3>),
+}
+
+pub struct Encoder<'d> {
+    direction: Direction,
+    pulses: i32,
+    pio: PioEncoder<'d>,
+}
+
+impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
     fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
@@ -65,49 +90,24 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Direction {
-    Forward,
-    Backward,
-    None,
-}
-
-enum PioEncoderMachine<'d> {
-    P0SM0(PioEncoder<'d, PIO0, 0>),
-    P0SM1(PioEncoder<'d, PIO0, 1>),
-    P0SM2(PioEncoder<'d, PIO0, 2>),
-    P0SM3(PioEncoder<'d, PIO0, 3>),
-    P1SM0(PioEncoder<'d, PIO1, 0>),
-    P1SM1(PioEncoder<'d, PIO1, 1>),
-    P1SM2(PioEncoder<'d, PIO1, 2>),
-    P1SM3(PioEncoder<'d, PIO1, 3>),
-}
-
-impl PioEncoderMachine<'_> {
+impl PioEncoder<'_> {
     pub async fn read(&mut self) -> i32 {
         match self {
-            PioEncoderMachine::P0SM0(sm) => sm.read().await,
-            PioEncoderMachine::P0SM1(sm) => sm.read().await,
-            PioEncoderMachine::P0SM2(sm) => sm.read().await,
-            PioEncoderMachine::P0SM3(sm) => sm.read().await,
-            PioEncoderMachine::P1SM0(sm) => sm.read().await,
-            PioEncoderMachine::P1SM1(sm) => sm.read().await,
-            PioEncoderMachine::P1SM2(sm) => sm.read().await,
-            PioEncoderMachine::P1SM3(sm) => sm.read().await,
+            PioEncoder::P0SM0(sm) => sm.read().await,
+            PioEncoder::P0SM1(sm) => sm.read().await,
+            PioEncoder::P0SM2(sm) => sm.read().await,
+            PioEncoder::P0SM3(sm) => sm.read().await,
+            PioEncoder::P1SM0(sm) => sm.read().await,
+            PioEncoder::P1SM1(sm) => sm.read().await,
+            PioEncoder::P1SM2(sm) => sm.read().await,
+            PioEncoder::P1SM3(sm) => sm.read().await,
         }
     }
 }
 
-pub struct Encoder<'d> {
-    direction: Direction,
-    pulses: i32,
-    pio: PioEncoderMachine<'d>,
-}
-
 #[allow(dead_code)]
 impl<'d> Encoder<'d> {
-    const fn new(pio: PioEncoderMachine<'d>) -> Self {
+    const fn new(pio: PioEncoder<'d>) -> Self {
         Self {
             direction: Direction::None,
             pulses: 0,
@@ -146,8 +146,6 @@ impl<'d> Encoder<'d> {
 }
 
 pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
-    defmt::info!("Starting encoder task");
-
     static ENCODER_COUNT: Mutex<CriticalSectionRawMutex, u32> = Mutex::new(0);
 
     macro_rules! pio_encoder {
@@ -157,8 +155,10 @@ pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
                 mut common, $sm, ..
             } = Pio::new(p, Irqs);
 
-            let pio_encoder = PioEncoder::new(&mut common, $sm, clk_pin);
-            PioEncoderMachine::$machine(pio_encoder)
+            let pio_encoder = PioEncoderInner::new(&mut common, $sm, clk_pin);
+            defmt::info!("Starting encoder {}", stringify!($machine));
+
+            PioEncoder::$machine(pio_encoder)
         }};
     }
 
