@@ -2,6 +2,7 @@ use crate::encoder::{spawn_encoder, Direction, Fixed};
 use crate::pwm::PwmSignal;
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
+use embassy_rp::pio::PioPin;
 use embassy_time::{Duration, Instant, Ticker};
 use fixed_macro::fixed;
 
@@ -78,22 +79,21 @@ impl Driver {
     }
 }
 
-pub async fn motor_driver<'a, D, P>(
+pub async fn motor_driver<'a, D>(
     pwm_signal: &'a PwmSignal,
     driver: &'a DriverMutex,
     direction: D,
-    enc_pin: P,
+    enc_pin: impl PioPin,
 ) -> !
 where
     D: Into<AnyPin>,
-    P: Into<AnyPin>,
 {
     let mut direction = Output::new(direction.into(), Level::Low);
-    let encoder = spawn_encoder(enc_pin).await;
+    let mut encoder = spawn_encoder(enc_pin).await;
     let mut ticker = Ticker::every(Duration::from_hz(100));
     let mut last_update = Instant::now();
     loop {
-        let value = encoder.lock().await.read_reset();
+        let value = encoder.read_reset().await;
         let control = driver.lock().await.update(value, last_update.elapsed());
         let control = control
             .saturating_mul(Fixed::from_num(1 << 8))
@@ -108,14 +108,13 @@ where
 
         if control > 2000 {
             direction.set_low();
-            encoder.lock().await.set_direction(Direction::Forward);
+            encoder.set_direction(Direction::Forward).await;
         } else if control < -2000 {
             direction.set_high();
-            encoder.lock().await.set_direction(Direction::Backward);
+            encoder.set_direction(Direction::Backward).await;
         } else {
-            encoder.lock().await.set_direction(Direction::None);
+            encoder.set_direction(Direction::None).await;
         }
-        encoder.lock().await.set_direction(Direction::Forward);
 
         pwm_signal.signal(control.unsigned_abs() as u16);
 
