@@ -115,8 +115,10 @@ async fn main(spawner: Spawner) {
             let mut led = Output::new(AnyPin::from(p.PIN_25), gpio::Level::Low);
             let mut ticker = Ticker::every(Duration::from_hz(1));
             loop {
-                led.toggle();
                 watchdog.feed();
+                led.set_high();
+                Timer::after_millis(200).await;
+                led.set_low();
                 ticker.next().await;
             }
         },

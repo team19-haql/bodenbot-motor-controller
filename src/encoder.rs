@@ -157,6 +157,7 @@ pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
 
             let pio_encoder = PioEncoderInner::new(&mut common, $sm, clk_pin);
             defmt::info!("Starting encoder {}", stringify!($machine));
+            log::info!("Starting encoder {}", stringify!($machine));
 
             PioEncoder::$machine(pio_encoder)
         }};

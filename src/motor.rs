@@ -88,6 +88,8 @@ pub async fn motor_driver<'a, D>(
 where
     D: Into<AnyPin>,
 {
+    defmt::info!("Starting motor driver");
+    log::info!("Starting motor driver");
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut encoder = spawn_encoder(enc_pin).await;
     let mut ticker = Ticker::every(Duration::from_hz(100));
