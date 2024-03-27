@@ -3,7 +3,7 @@ use crate::pwm::PwmSignal;
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_rp::pio::PioPin;
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_time::{Duration, Instant, Timer};
 use fixed_macro::fixed;
 
 const K_P: Fixed = fixed!(8.0: I16F16);
@@ -51,7 +51,9 @@ impl Driver {
     }
 
     pub fn update(&mut self, rotations: Fixed, delta: Duration) -> Fixed {
-        let dt = Fixed::from_num(delta.as_micros() as i32) / 1000000; // should not be longer than a few milliseconds
+        // should not be longer than a few milliseconds
+        // Divide by 1000000 to convert micros to seconds
+        let dt = Fixed::from_num(delta.as_micros() as i32) / 1000000;
         if dt == 0 {
             return self.output;
         }
@@ -92,11 +94,13 @@ where
     log::info!("Starting motor driver");
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut encoder = spawn_encoder(enc_pin).await;
-    let mut ticker = Ticker::every(Duration::from_hz(100));
     let mut last_update = Instant::now();
     loop {
         let value = encoder.read_reset().await;
-        let control = driver.lock().await.update(value, last_update.elapsed());
+        // make sure the time step doesn't become too long
+        // reading from encoder may stall when not moving.
+        let elapsed = last_update.elapsed().min(Duration::from_millis(100));
+        let control = driver.lock().await.update(value, elapsed);
         let control = control
             .saturating_mul(Fixed::from_num(1 << 8))
             .to_num::<i32>();
@@ -108,6 +112,8 @@ where
             .saturating_mul(Fixed::from_num(1 << 8))
             .to_num::<i32>();
 
+        // Use a threshold to set encoder direction to avoid oscillation
+        // when switching directions
         if control > 2000 {
             direction.set_low();
             encoder.set_direction(Direction::Forward).await;
@@ -121,6 +127,9 @@ where
         pwm_signal.signal(control.unsigned_abs() as u16);
 
         last_update = Instant::now();
-        ticker.next().await;
+
+        // use Timer instead of Ticker so time steps remain constant
+        // even if the loop takes longer due to encoder stall
+        Timer::after(Duration::from_hz(100)).await;
     }
 }
