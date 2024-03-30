@@ -74,10 +74,13 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         //
         // if x is not zero after the pull instruction, that signals that a read command
         // occured and the pulse count is pushed to the CPU.
+        //
+        // the arithmetic logic is based on x + y = ~(~x - y)
         #[rustfmt::skip]
         let pio_program = pio_proc::pio_asm!(
             "start:",
             "  set y 0",
+            "  mov y ~y", // negate y so counter is accurate
             "loop:",
             "  wait 0 pin 0 [8]",
             "  wait 1 pin 0 [8]",
