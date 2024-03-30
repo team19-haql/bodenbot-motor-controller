@@ -1,3 +1,7 @@
+//! We use the PIO for the encoder to allow high throughput without
+//! interrupting the CPU. The PIO state machine is configured to
+//! count the encoder pin pulses until a signal is sent to push the
+//! pulse count to the RX FIFO which is read by the CPU.
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
@@ -7,7 +11,10 @@ use pio::{Common, Config, Instance, InterruptHandler, Pio, PioPin, StateMachine}
 
 pub use fixed::types::I16F16 as Fixed;
 
+/// The gear ratio of the bodenbot motors
 const RATIO: i32 = 100;
+
+/// The pulses per revolution of the encoder
 const PPR: i32 = 16 * RATIO;
 
 bind_interrupts!(struct Irqs {
@@ -15,10 +22,12 @@ bind_interrupts!(struct Irqs {
     PIO1_IRQ_0 => InterruptHandler<PIO1>;
 });
 
+/// The internal encoder PIO state machine
 struct PioEncoderInner<'d, T: Instance, const SM: usize> {
     sm: StateMachine<'d, T, SM>,
 }
 
+/// The encoder direction
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Direction {
@@ -27,6 +36,9 @@ pub enum Direction {
     None,
 }
 
+/// A wrapper for the PIO encoder state machine to allow
+/// multiple generic instances of the PIO state machine to be
+/// used in a non generic function.
 enum PioEncoder<'d> {
     P0SM0(PioEncoderInner<'d, PIO0, 0>),
     P0SM1(PioEncoderInner<'d, PIO0, 1>),
@@ -38,6 +50,7 @@ enum PioEncoder<'d> {
     P1SM3(PioEncoderInner<'d, PIO1, 3>),
 }
 
+/// The public interface for reading the encoder..
 pub struct Encoder<'d> {
     direction: Direction,
     pulses: i32,
@@ -50,6 +63,17 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         mut sm: StateMachine<'d, T, SM>,
         pulse_pin: impl PioPin,
     ) -> Self {
+        // The PIO program is written in PIO assembly
+        // it decrements the y register using a jmp instuction
+        // since that is the only PIO instruction that allows
+        // arithmetic operations. The value is negated before pushing
+        // to the RX FIFO to fix the negative value.
+        //
+        // x must be set to 0 before `pull noblock` since that instruction
+        // defaults to reading the x register if there is nothing in the TX FIFO.
+        //
+        // if x is not zero after the pull instruction, that signals that a read command
+        // occured and the pulse count is pushed to the CPU.
         #[rustfmt::skip]
         let pio_program = pio_proc::pio_asm!(
             "start:",
@@ -74,6 +98,7 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         pulse_pin.set_pull(Pull::None);
         sm.set_pin_dirs(pio::Direction::In, &[&pulse_pin]);
         cfg.set_in_pins(&[&pulse_pin]);
+        // it may be useful to set a clock divider if there are issues with the pulse jumping.
 
         cfg.use_program(&pio.load_program(&pio_program.program), &[]);
         sm.set_config(&cfg);
@@ -82,10 +107,11 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
     }
 
     async fn read(&mut self) -> i32 {
-        // signal a read
+        // signal a read to the PIO state machine
         self.sm.tx().push(5);
 
         // wait for the read to complete
+        // This could stall for a while if there are no pulses
         self.sm.rx().wait_pull().await as i32
     }
 }
@@ -105,7 +131,6 @@ impl PioEncoder<'_> {
     }
 }
 
-#[allow(dead_code)]
 impl<'d> Encoder<'d> {
     const fn new(pio: PioEncoder<'d>) -> Self {
         Self {
@@ -114,28 +139,36 @@ impl<'d> Encoder<'d> {
             pio,
         }
     }
+
+    /// Read the encoder angle in radians
     pub async fn read(&mut self) -> Fixed {
         self.update().await;
         Fixed::from_num(self.pulses) * (Fixed::PI * 2 / PPR)
     }
+
+    /// Read the encoder angle in radians then reset the pulse count
     pub async fn read_reset(&mut self) -> Fixed {
         let rot = self.read().await;
         self.reset();
         rot
     }
 
+    /// Reset the pulse count
     pub fn reset(&mut self) {
         self.pulses = 0;
     }
+
+    /// The encoder direction needs to be manually set since
+    /// we are using a single pulse encoder.
     pub async fn set_direction(&mut self, direction: Direction) {
+        // Update the encoder before changing the direction so that
+        // previous encoder pulses are counted correctly
         self.update().await;
         self.direction = direction;
     }
-    pub fn direction(&self) -> Direction {
-        self.direction
-    }
 
-    pub async fn update(&mut self) {
+    /// Updates the interrnal pulse count depending on its set direction
+    async fn update(&mut self) {
         let pulses = self.pio.read().await;
         match self.direction {
             Direction::Forward => self.pulses += pulses,
@@ -145,9 +178,12 @@ impl<'d> Encoder<'d> {
     }
 }
 
+/// Creates and sets up a new encoder state machine.
 pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
     static ENCODER_COUNT: Mutex<CriticalSectionRawMutex, u32> = Mutex::new(0);
 
+    // This macro creates a PIO encoder state machine and wraps it in
+    // an enum for the proper encoder.
     macro_rules! pio_encoder {
         ($machine:ident: ($pio:ident, $sm:ident)) => {{
             let p = unsafe { embassy_rp::peripherals::$pio::steal() };
@@ -163,6 +199,9 @@ pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
         }};
     }
 
+    // each time this function is called a new PIO machine has
+    // to be used. The `ENCODER_COUNT` is keeping track of
+    // how many have been created
     let machine = match *ENCODER_COUNT.lock().await {
         0 => pio_encoder!(P0SM0: (PIO0, sm0)),
         1 => pio_encoder!(P0SM1: (PIO0, sm1)),

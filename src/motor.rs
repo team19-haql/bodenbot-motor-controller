@@ -1,3 +1,8 @@
+//! The motor encoder spawns a new motor task loop. The task
+//! will manage the pid motor controller for the given pins.
+//!
+//! The current state of the driver such as target value and
+//! measured value can be read over i2c.
 use crate::encoder::{spawn_encoder, Direction, Fixed};
 use crate::pwm::PwmSignal;
 use crate::utils::Mutex;
@@ -6,19 +11,35 @@ use embassy_rp::pio::PioPin;
 use embassy_time::{Duration, Instant, Timer};
 use fixed_macro::fixed;
 
+/// Proportional PID controller constant
 const K_P: Fixed = fixed!(8.0: I16F16);
+/// Integral PID controller constant
 const K_I: Fixed = fixed!(0.0: I16F16);
+/// Derivative PID controller constant
 const K_D: Fixed = fixed!(0.0: I16F16);
 
 pub type DriverMutex = Mutex<Driver>;
 
-pub static MOTOR0_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
-pub static MOTOR1_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
-pub static MOTOR2_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
-pub static MOTOR3_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
-pub static MOTOR4_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
-pub static MOTOR5_DRIVER: DriverMutex = DriverMutex::new(Driver::new());
+macro_rules! motor_drivers {
+    ($($motor:ident),*$(,)?) => {
+        $(
+        #[doc = concat!("The global singleton for motor driver ", stringify!($motor))]
+        pub static $motor: DriverMutex = DriverMutex::new(Driver::new());
+        )*
+    };
+}
 
+#[rustfmt::skip]
+motor_drivers!(
+    MOTOR0_DRIVER,
+    MOTOR1_DRIVER,
+    MOTOR2_DRIVER,
+    MOTOR3_DRIVER,
+    MOTOR4_DRIVER,
+    MOTOR5_DRIVER,
+);
+
+/// PID controller for motor speed control
 pub struct Driver {
     target_value: Fixed,
     previous_value: Fixed,
@@ -38,18 +59,22 @@ impl Driver {
         }
     }
 
+    /// Read the target value for the PID controller
     pub fn set_target(&mut self, target: Fixed) {
         self.target_value = target;
     }
 
+    /// Read the current target value for the PID controller
     pub fn get_target(&self) -> Fixed {
         self.target_value
     }
 
+    /// Read the last measured_value for the PID controller
     pub fn get_measure_value(&self) -> Fixed {
         self.measured_value
     }
 
+    /// Update the PID controller with a new measured_value and time delta.
     pub fn update(&mut self, rotations: Fixed, delta: Duration) -> Fixed {
         // should not be longer than a few milliseconds
         // Divide by 1000000 to convert micros to seconds
@@ -81,6 +106,8 @@ impl Driver {
     }
 }
 
+/// Motor driver task runs a loop that reads the encoder
+/// value and updates the motor driver
 pub async fn motor_driver<'a, D>(
     pwm_signal: &'a PwmSignal,
     driver: &'a DriverMutex,

@@ -1,24 +1,45 @@
-#![allow(dead_code)]
-
+//! Since 2 pwn pins are tied to a single slice, it is difficult
+//! to manage pins that are not used together, but part of the same
+//! pwm slice. To get around this, we create a worker task that runs the
+//! pwm slice, and a signal channel that communicates with this task.
+//! This way we do not directly interact with the pins.
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_rp::pwm::{Channel, Config, Pwm, PwmPinA, PwmPinB};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 
+/// The signal type for setting pwm signals.
 pub type PwmSignal = Signal<ThreadModeRawMutex, u16>;
 
+/// The top clock value for the pwm slice, the pwm clock resets
+/// when it reaches this value.
 pub const TOP_CLOCK: u16 = 0x8000;
-pub static MOTOR0_PWM: PwmSignal = PwmSignal::new();
-pub static MOTOR1_PWM: PwmSignal = PwmSignal::new();
-pub static MOTOR2_PWM: PwmSignal = PwmSignal::new();
-pub static MOTOR3_PWM: PwmSignal = PwmSignal::new();
-pub static MOTOR4_PWM: PwmSignal = PwmSignal::new();
-pub static MOTOR5_PWM: PwmSignal = PwmSignal::new();
-pub static LED0_PWM: PwmSignal = PwmSignal::new();
-pub static FAN0_PWM: PwmSignal = PwmSignal::new();
-pub static FAN1_PWM: PwmSignal = PwmSignal::new();
 
+macro_rules! pwm_signals {
+    ($($signal:ident),*$(,)?) => {
+        $(
+        /// A global singleton that can be used to set PWM compare values.
+        pub static $signal: PwmSignal = PwmSignal::new();
+        )*
+    };
+}
+
+#[rustfmt::skip]
+pwm_signals!(
+    MOTOR0_PWM,
+    MOTOR1_PWM,
+    MOTOR2_PWM,
+    MOTOR3_PWM,
+    MOTOR4_PWM,
+    MOTOR5_PWM,
+    LED0_PWM,
+    FAN0_PWM,
+    FAN1_PWM,
+);
+
+/// Create a worker task that runs the pwm slice for two pins
+/// on the a and b channels.
 pub async fn slice_worker_ab<C, U, V>(
     chan: C,
     p_a: U,
@@ -47,6 +68,8 @@ where
     }
 }
 
+/// Create a worker task that runs the pwm slice for a single pin
+/// on the a channel.
 pub async fn slice_worker_a<C, U>(chan: C, p: U, sig: &'static PwmSignal) -> !
 where
     C: Channel,
@@ -61,6 +84,8 @@ where
     }
 }
 
+/// Create a worker task that runs the pwm slice for a single pin
+/// on the b channel.
 pub async fn slice_worker_b<C, U>(chan: C, p: U, sig: &'static PwmSignal) -> !
 where
     C: Channel,

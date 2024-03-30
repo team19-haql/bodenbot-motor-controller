@@ -19,7 +19,9 @@ use embassy_time::{Duration, Ticker, Timer};
 use gpio::{AnyPin, Input, Output};
 use {defmt_rtt as _, panic_probe as _};
 
+/// High priority executor
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
+/// Medium priority executor
 static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 
 #[interrupt]

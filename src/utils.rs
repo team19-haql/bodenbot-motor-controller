@@ -3,6 +3,8 @@ use embassy_sync::mutex::Mutex as EmbassyMutex;
 
 pub type Mutex<T> = EmbassyMutex<ThreadModeRawMutex, T>;
 
+/// This is a macro that improves on the embassy join function
+/// with the advantage of joining any number of futures.
 #[macro_export]
 macro_rules! join {
     ($f0:expr, $f1: expr, $($rest:expr),+ $(,)?) => {{

@@ -1,4 +1,14 @@
-//! This example shows how to use the 2040 as an i2c slave.
+//! This i2c task can receives messages with a register.
+//! Writing to the register updates the appropriate values within
+//! a controller.
+//!
+//! The motor registers can be written to and read from. Writing to the motor
+//! register expects a number in the `I16F16` fixed point format and updates the
+//! associated controller's target value. Reading from the motor will return the
+//! current measured value in the same format.
+//!
+//! The `LED` and `FAN` registers use a `u16` for a compare value a pwm clock. The value
+//! can only be written to.
 use crate::encoder::Fixed;
 use crate::motor;
 use crate::motor::DriverMutex;
@@ -10,13 +20,15 @@ bind_interrupts!(struct Irqs {
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
 
+/// The device address for the I2C device
 const DEV_ADDR: u8 = 0x42;
 
+/// Macro to define registers for I2C communication
 macro_rules! registers {
     ($($name:ident: $value:expr),* $(,)?) => {
         $(
-            #[allow(dead_code)]
-            const $name: u8 = $value;
+        #[doc = concat!("The register value for ", stringify!($name))]
+        const $name: u8 = $value;
         )*
     }
 }
@@ -60,6 +72,8 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
 
     loop {
         let mut buf = [0u8; 128];
+        // only the write and write then read commands are used since each
+        // transaction always expects an associated register.
         match dev.listen(&mut buf).await {
             Ok(i2c_slave::Command::GeneralCall(len)) => {
                 defmt::info!("Device received general call write: {}", buf[..len])
@@ -102,6 +116,7 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     LED0 => pwm::LED0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN0 => pwm::FAN0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN1 => pwm::FAN1_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
+                    // error
                     _ => defmt::error!("Invalid Write {:x}", buf[0]),
                 }
             }
@@ -125,7 +140,7 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     LED0 => defmt::todo!("Read LED"),
                     FAN0 => defmt::todo!("Read FAN 0"),
                     FAN1 => defmt::todo!("Read FAN 1"),
-                    // example
+                    // error
                     x => defmt::error!("Invalid Write Read {:x}", x),
                 }
             }

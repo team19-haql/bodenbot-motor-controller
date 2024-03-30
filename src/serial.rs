@@ -1,6 +1,5 @@
-//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip as well as how to create multiple usb classes for one device
-//!
-//! This creates a USB serial port that echos. It will also print out logging information on a separate serial device
+//! This create a serial usb logger task and allows the use for the `log`
+//! crate to write to serial for debuggin.
 
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
