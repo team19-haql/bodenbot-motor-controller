@@ -7,6 +7,7 @@ use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use fixed::traits::ToFixed;
 use pio::{Common, Config, Instance, InterruptHandler, Pio, PioPin, StateMachine};
 
 pub use fixed::types::I16F16 as Fixed;
@@ -101,7 +102,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         pulse_pin.set_pull(Pull::None);
         sm.set_pin_dirs(pio::Direction::In, &[&pulse_pin]);
         cfg.set_in_pins(&[&pulse_pin]);
-        // it may be useful to set a clock divider if there are issues with the pulse jumping.
+        // limit clock speed to avoid reading jitter
+        cfg.clock_divider = 100.to_fixed();
 
         cfg.use_program(&pio.load_program(&pio_program.program), &[]);
         sm.set_config(&cfg);
