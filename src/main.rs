@@ -53,14 +53,14 @@ async fn main(spawner: Spawner) {
             &pwm::FAN1_PWM
         ),
         pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2_PWM),
-        pwm::slice_worker_a(p.PWM_CH5, p.PIN_10, &pwm::MOTOR3_PWM),
-        pwm::slice_worker_b(p.PWM_CH6, p.PIN_13, &pwm::MOTOR4_PWM),
+        pwm::slice_worker_b(p.PWM_CH5, p.PIN_11, &pwm::MOTOR3_PWM),
+        pwm::slice_worker_a(p.PWM_CH7, p.PIN_14, &pwm::MOTOR4_PWM),
         // start motor drivers
         motor::motor_driver(&pwm::MOTOR0_PWM, &motor::MOTOR0_DRIVER, p.PIN_0, p.PIN_2,),
         motor::motor_driver(&pwm::MOTOR1_PWM, &motor::MOTOR1_DRIVER, p.PIN_3, p.PIN_5,),
         motor::motor_driver(&pwm::MOTOR2_PWM, &motor::MOTOR2_DRIVER, p.PIN_6, p.PIN_8,),
-        motor::motor_driver(&pwm::MOTOR3_PWM, &motor::MOTOR3_DRIVER, p.PIN_9, p.PIN_11,),
-        motor::motor_driver(&pwm::MOTOR4_PWM, &motor::MOTOR4_DRIVER, p.PIN_12, p.PIN_14,),
+        motor::motor_driver(&pwm::MOTOR3_PWM, &motor::MOTOR3_DRIVER, p.PIN_9, p.PIN_10,),
+        motor::motor_driver(&pwm::MOTOR4_PWM, &motor::MOTOR4_DRIVER, p.PIN_12, p.PIN_13,),
         motor::motor_driver(&pwm::MOTOR5_PWM, &motor::MOTOR5_DRIVER, p.PIN_15, p.PIN_17,),
         // read button
         async {
