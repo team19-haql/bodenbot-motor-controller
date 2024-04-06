@@ -132,13 +132,6 @@ where
             .saturating_mul(Fixed::from_num(1 << 8))
             .to_num::<i32>();
 
-        let _target = driver
-            .lock()
-            .await
-            .get_target()
-            .saturating_mul(Fixed::from_num(1 << 8))
-            .to_num::<i32>();
-
         // Use a threshold to set encoder direction to avoid oscillation
         // when switching directions
         if control > 2000 {

@@ -7,6 +7,7 @@ use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_time::Timer;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, Instance, InterruptHandler, Pio, PioPin, StateMachine};
 
@@ -112,12 +113,25 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
     }
 
     async fn read(&mut self) -> i32 {
-        // signal a read to the PIO state machine
-        self.sm.tx().push(5);
+        if let Some(value) = self.sm.rx().try_pull() {
+            // it is possible that the rx register has unread values.
+            // we will just read that since we read several hundred times
+            // per second, so it should be fine.
+            value as i32
+        } else {
+            // signal a read to the PIO state machine
+            if self.sm.tx().empty() {
+                self.sm.tx().push(5);
+            } else {
+                defmt::warn!("PIO TX FIFO full");
+                log::warn!("PIO TX FIFO full");
+            }
 
-        // wait for the read to complete
-        // This could stall for a while if there are no pulses
-        self.sm.rx().wait_pull().await as i32
+            // wait for the read to complete
+            Timer::after_micros(1).await;
+            // don't wait for the pull because it could stall
+            self.sm.rx().try_pull().unwrap_or(0) as i32
+        }
     }
 }
 
