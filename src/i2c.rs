@@ -89,7 +89,10 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                             break;
                         }
                     },
-                    Err(e) => defmt::error!("error while responding {}", e),
+                    Err(e) => {
+                        defmt::error!("error while responding {}", e);
+                        log::error!("error while responding");
+                    }
                 }
             },
             Ok(i2c_slave::Command::Write(_len)) => {
@@ -117,7 +120,10 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     FAN0 => pwm::FAN0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN1 => pwm::FAN1_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     // error
-                    _ => defmt::error!("Invalid Write {:x}", buf[0]),
+                    _ => {
+                        defmt::error!("Invalid Write {:x}", buf[0]);
+                        log::error!("Invalid Write");
+                    }
                 }
             }
             Ok(i2c_slave::Command::WriteRead(_len)) => {
@@ -141,7 +147,10 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     FAN0 => defmt::todo!("Read FAN 0"),
                     FAN1 => defmt::todo!("Read FAN 1"),
                     // error
-                    x => defmt::error!("Invalid Write Read {:x}", x),
+                    x => {
+                        defmt::error!("Invalid Write Read {:x}", x);
+                        log::error!("Invalid Write Read");
+                    }
                 }
             }
             Err(e) => defmt::error!("{}", e),
