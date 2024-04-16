@@ -3,11 +3,10 @@
 //!
 //! The current state of the driver such as target value and
 //! measured value can be read over i2c.
-use crate::encoder::{spawn_encoder, Direction, Fixed};
+use crate::encoder::{Direction, Encoder, Fixed};
 use crate::pwm::PwmSignal;
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
-use embassy_rp::pio::PioPin;
 use embassy_time::{Duration, Instant, Timer};
 use fixed_macro::fixed;
 
@@ -31,12 +30,12 @@ macro_rules! motor_drivers {
 
 #[rustfmt::skip]
 motor_drivers!(
-    MOTOR0_DRIVER,
-    MOTOR1_DRIVER,
-    MOTOR2_DRIVER,
-    MOTOR3_DRIVER,
-    MOTOR4_DRIVER,
-    MOTOR5_DRIVER,
+    MOTOR0,
+    MOTOR1,
+    MOTOR2,
+    MOTOR3,
+    MOTOR4,
+    MOTOR5,
 );
 
 /// PID controller for motor speed control
@@ -112,7 +111,7 @@ pub async fn motor_driver<'a, D>(
     pwm_signal: &'a PwmSignal,
     driver: &'a DriverMutex,
     direction: D,
-    enc_pin: impl PioPin,
+    mut encoder: Encoder<'a>,
 ) -> !
 where
     D: Into<AnyPin>,
@@ -120,17 +119,17 @@ where
     defmt::info!("Starting motor driver");
     log::info!("Starting motor driver");
     let mut direction = Output::new(direction.into(), Level::Low);
-    let mut encoder = spawn_encoder(enc_pin).await;
     let mut last_update = Instant::now();
     loop {
-        let value = encoder.read_reset().await;
+        let value = encoder.read_and_reset().await;
         // make sure the time step doesn't become too long
         // reading from encoder may stall when not moving.
         let elapsed = last_update.elapsed().min(Duration::from_millis(100));
         let control = driver.lock().await.update(value, elapsed);
         let control = control
             .saturating_mul(Fixed::from_num(1 << 8))
-            .to_num::<i32>();
+            .to_num::<i32>()
+            .saturating_mul(8);
 
         // Use a threshold to set encoder direction to avoid oscillation
         // when switching directions

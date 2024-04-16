@@ -98,24 +98,12 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
             Ok(i2c_slave::Command::Write(_len)) => {
                 match buf[0] {
                     // Set the state
-                    MOTOR0 => {
-                        write_motor(&motor::MOTOR0_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
-                    MOTOR1 => {
-                        write_motor(&motor::MOTOR1_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
-                    MOTOR2 => {
-                        write_motor(&motor::MOTOR2_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
-                    MOTOR3 => {
-                        write_motor(&motor::MOTOR3_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
-                    MOTOR4 => {
-                        write_motor(&motor::MOTOR4_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
-                    MOTOR5 => {
-                        write_motor(&motor::MOTOR5_DRIVER, [buf[1], buf[2], buf[3], buf[4]]).await
-                    }
+                    MOTOR0 => write_motor(&motor::MOTOR0, [buf[1], buf[2], buf[3], buf[4]]).await,
+                    MOTOR1 => write_motor(&motor::MOTOR1, [buf[1], buf[2], buf[3], buf[4]]).await,
+                    MOTOR2 => write_motor(&motor::MOTOR2, [buf[1], buf[2], buf[3], buf[4]]).await,
+                    MOTOR3 => write_motor(&motor::MOTOR3, [buf[1], buf[2], buf[3], buf[4]]).await,
+                    MOTOR4 => write_motor(&motor::MOTOR4, [buf[1], buf[2], buf[3], buf[4]]).await,
+                    MOTOR5 => write_motor(&motor::MOTOR5, [buf[1], buf[2], buf[3], buf[4]]).await,
                     LED0 => pwm::LED0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN0 => pwm::FAN0_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
                     FAN1 => pwm::FAN1_PWM.signal(u16::from_le_bytes([buf[1], buf[2]])),
@@ -137,12 +125,12 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                     }};
                 }
                 match buf[0] {
-                    MOTOR0 => motor_read!(&motor::MOTOR0_DRIVER),
-                    MOTOR1 => motor_read!(&motor::MOTOR1_DRIVER),
-                    MOTOR2 => motor_read!(&motor::MOTOR2_DRIVER),
-                    MOTOR3 => motor_read!(&motor::MOTOR3_DRIVER),
-                    MOTOR4 => motor_read!(&motor::MOTOR4_DRIVER),
-                    MOTOR5 => motor_read!(&motor::MOTOR5_DRIVER),
+                    MOTOR0 => motor_read!(&motor::MOTOR0),
+                    MOTOR1 => motor_read!(&motor::MOTOR1),
+                    MOTOR2 => motor_read!(&motor::MOTOR2),
+                    MOTOR3 => motor_read!(&motor::MOTOR3),
+                    MOTOR4 => motor_read!(&motor::MOTOR4),
+                    MOTOR5 => motor_read!(&motor::MOTOR5),
                     LED0 => defmt::todo!("Read LED"),
                     FAN0 => defmt::todo!("Read FAN 0"),
                     FAN1 => defmt::todo!("Read FAN 1"),

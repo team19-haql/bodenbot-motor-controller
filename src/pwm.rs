@@ -27,12 +27,12 @@ macro_rules! pwm_signals {
 
 #[rustfmt::skip]
 pwm_signals!(
-    MOTOR0_PWM,
-    MOTOR1_PWM,
-    MOTOR2_PWM,
-    MOTOR3_PWM,
-    MOTOR4_PWM,
-    MOTOR5_PWM,
+    MOTOR0,
+    MOTOR1,
+    MOTOR2,
+    MOTOR3,
+    MOTOR4,
+    MOTOR5,
     LED0_PWM,
     FAN0_PWM,
     FAN1_PWM,

@@ -5,6 +5,10 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 default-run = "bodenbot-motor-controller"
 
+[[bin]]
+test = false
+name = "bodenbot-motor-controller"
+
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"

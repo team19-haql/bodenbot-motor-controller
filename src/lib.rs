@@ -26,16 +26,12 @@ pub async fn motor_control(spawner: &Spawner) {
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     // watchdog.start(Duration::from_secs(10));
 
+    let mut enc = encoder::EncoderBuilder::new(p.PIO0, p.PIO1);
+
     join!(
         // create pwm workers
         // pwm::slice_worker_b(p.PWM_CH0, p.PIN_1, &pwm::MOTOR0_PWM),
-        pwm::slice_worker_ab(
-            p.PWM_CH0,
-            p.PIN_16,
-            &pwm::MOTOR5_PWM,
-            p.PIN_1,
-            &pwm::MOTOR0_PWM
-        ),
+        pwm::slice_worker_ab(p.PWM_CH0, p.PIN_16, &pwm::MOTOR5, p.PIN_1, &pwm::MOTOR0),
         pwm::slice_worker_ab(
             p.PWM_CH1,
             p.PIN_18,
@@ -43,23 +39,17 @@ pub async fn motor_control(spawner: &Spawner) {
             p.PIN_19,
             &pwm::FAN0_PWM
         ),
-        pwm::slice_worker_ab(
-            p.PWM_CH2,
-            p.PIN_4,
-            &pwm::MOTOR1_PWM,
-            p.PIN_21,
-            &pwm::FAN1_PWM
-        ),
-        pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2_PWM),
-        pwm::slice_worker_b(p.PWM_CH5, p.PIN_11, &pwm::MOTOR3_PWM),
-        pwm::slice_worker_a(p.PWM_CH7, p.PIN_14, &pwm::MOTOR4_PWM),
+        pwm::slice_worker_ab(p.PWM_CH2, p.PIN_4, &pwm::MOTOR1, p.PIN_21, &pwm::FAN1_PWM),
+        pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2),
+        pwm::slice_worker_b(p.PWM_CH5, p.PIN_11, &pwm::MOTOR3),
+        pwm::slice_worker_a(p.PWM_CH7, p.PIN_14, &pwm::MOTOR4),
         // start motor drivers
-        motor::motor_driver(&pwm::MOTOR0_PWM, &motor::MOTOR0_DRIVER, p.PIN_0, p.PIN_2,),
-        motor::motor_driver(&pwm::MOTOR1_PWM, &motor::MOTOR1_DRIVER, p.PIN_3, p.PIN_5,),
-        motor::motor_driver(&pwm::MOTOR2_PWM, &motor::MOTOR2_DRIVER, p.PIN_6, p.PIN_8,),
-        motor::motor_driver(&pwm::MOTOR3_PWM, &motor::MOTOR3_DRIVER, p.PIN_9, p.PIN_10,),
-        motor::motor_driver(&pwm::MOTOR4_PWM, &motor::MOTOR4_DRIVER, p.PIN_12, p.PIN_13,),
-        motor::motor_driver(&pwm::MOTOR5_PWM, &motor::MOTOR5_DRIVER, p.PIN_15, p.PIN_17,),
+        motor::motor_driver(&pwm::MOTOR0, &motor::MOTOR0, p.PIN_0, enc.spawn(p.PIN_2),),
+        motor::motor_driver(&pwm::MOTOR1, &motor::MOTOR1, p.PIN_3, enc.spawn(p.PIN_5),),
+        motor::motor_driver(&pwm::MOTOR2, &motor::MOTOR2, p.PIN_6, enc.spawn(p.PIN_8),),
+        motor::motor_driver(&pwm::MOTOR3, &motor::MOTOR3, p.PIN_9, enc.spawn(p.PIN_10),),
+        motor::motor_driver(&pwm::MOTOR4, &motor::MOTOR4, p.PIN_12, enc.spawn(p.PIN_13),),
+        motor::motor_driver(&pwm::MOTOR5, &motor::MOTOR5, p.PIN_15, enc.spawn(p.PIN_17),),
         // read button
         async {
             let mut btn = Input::new(AnyPin::from(p.PIN_28), gpio::Pull::Up);

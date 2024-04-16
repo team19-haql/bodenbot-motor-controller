@@ -5,10 +5,8 @@
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use fixed::traits::ToFixed;
-use pio::{Common, Config, Instance, InterruptHandler, Pio, PioPin, StateMachine};
+use pio::{Common, Config, Instance, InterruptHandler, LoadedProgram, Pio, PioPin, StateMachine};
 
 pub use fixed::types::I16F16 as Fixed;
 
@@ -59,11 +57,120 @@ pub struct Encoder<'d> {
     pio: PioEncoder<'d>,
 }
 
+#[allow(dead_code)]
+struct PioData<'d, T: Instance> {
+    common: Common<'d, T>,
+    sm0: Option<StateMachine<'d, T, 0>>,
+    sm1: Option<StateMachine<'d, T, 1>>,
+    sm2: Option<StateMachine<'d, T, 2>>,
+    sm3: Option<StateMachine<'d, T, 3>>,
+    program: LoadedProgram<'d, T>,
+}
+
+impl<'d, T: Instance> PioData<'d, T> {
+    fn new(mut pio: Pio<'d, T>) -> Self {
+        let program = build_program(&mut pio.common);
+        Self {
+            common: pio.common,
+            sm0: Some(pio.sm0),
+            sm1: Some(pio.sm1),
+            sm2: Some(pio.sm2),
+            sm3: Some(pio.sm3),
+            program,
+        }
+    }
+}
+
+pub struct EncoderBuilder<'d> {
+    pio0: PioData<'d, PIO0>,
+    pio1: PioData<'d, PIO1>,
+    encoder_count: u32,
+}
+
+fn build_program<'d, T: Instance>(pio: &mut Common<'d, T>) -> LoadedProgram<'d, T> {
+    #[rustfmt::skip]
+    let pio_program = pio_proc::pio_asm!(
+        "start:",
+        "  set y (-1)", // negate y so counter is accurate
+        "  set x 0",
+        "loop:",
+        "  wait 0 pin 0 [8]",
+        "  wait 1 pin 0 [8]",
+        "  jmp y-- test",
+        "test:",
+        "  pull noblock",
+        "  out x 32",
+        "  jmp !x loop",
+        "output:",
+        "  mov isr ~y",
+        "  push",
+    );
+    pio.try_load_program(&pio_program.program)
+        .expect("Failed to load PIO program.")
+}
+
+impl<'d> EncoderBuilder<'d> {
+    pub fn new(pio0: PIO0, pio1: PIO1) -> Self {
+        let pio0 = Pio::new(pio0, Irqs);
+        let pio1 = Pio::new(pio1, Irqs);
+
+        Self {
+            pio0: PioData::new(pio0),
+            pio1: PioData::new(pio1),
+            encoder_count: 0,
+        }
+    }
+
+    /// Creates and sets up a new encoder state machine.
+    pub fn spawn(&mut self, clk_pin: impl PioPin) -> Encoder<'d> {
+        // This macro creates a PIO encoder state machine and wraps it in
+        // an enum for the proper encoder.
+        macro_rules! pio_encoder {
+            ($machine:ident: ($pio:ident, $sm:ident)) => {{
+                let common = &mut self.$pio.common;
+                let sm = self
+                    .$pio
+                    .$sm
+                    .take()
+                    .expect("Failed to take PIO state machine in encoder builder");
+                let program = &self.$pio.program;
+
+                let pio_encoder = PioEncoderInner::new(common, sm, clk_pin, program);
+                defmt::info!("Starting encoder {}", stringify!($machine));
+                log::info!("Starting encoder {}", stringify!($machine));
+
+                PioEncoder::$machine(pio_encoder)
+            }};
+        }
+
+        // each time this function is called a new PIO machine has
+        // to be used. The `ENCODER_COUNT` is keeping track of
+        // how many have been created
+        let machine = match self.encoder_count {
+            0 => pio_encoder!(P0SM0: (pio0, sm0)),
+            1 => pio_encoder!(P0SM1: (pio0, sm1)),
+            2 => pio_encoder!(P0SM2: (pio0, sm2)),
+            3 => pio_encoder!(P0SM3: (pio0, sm3)),
+            4 => pio_encoder!(P1SM0: (pio1, sm0)),
+            5 => pio_encoder!(P1SM1: (pio1, sm1)),
+            6 => pio_encoder!(P1SM2: (pio1, sm2)),
+            7 => pio_encoder!(P1SM3: (pio1, sm3)),
+            _ => panic!("Exceeded the number of supported encoders"),
+        };
+
+        self.encoder_count += 1;
+
+        let encoder = Encoder::new(machine);
+        encoder
+    }
+}
+
 impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
     fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
         pulse_pin: impl PioPin,
+        program: &LoadedProgram<'d, T>,
     ) -> Self {
         // The PIO program is written in PIO assembly
         // it decrements the y register using a jmp instuction
@@ -78,27 +185,6 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         // occured and the pulse count is pushed to the CPU.
         //
         // the arithmetic logic is based on x + y = ~(~x - y)
-        #[rustfmt::skip]
-        let pio_program = pio_proc::pio_asm!(
-            "start:",
-            "  set y (-1)", // negate y so counter is accurate
-            "  set x 0",
-            "loop:",
-            "  wait 0 pin 0 [8]",
-            "  wait 1 pin 0 [8]",
-            "  jmp y-- test",
-            "test:",
-            "  pull noblock",
-            "  out x 32",
-            "  jmp !x loop",
-            "output:",
-            "  mov isr ~y",
-            "  push",
-        );
-        let program = &pio
-            .try_load_program(&pio_program.program)
-            .expect("Failed to load PIO program.");
-
         let mut cfg = Config::default();
 
         let mut pulse_pin = pio.make_pio_pin(pulse_pin);
@@ -156,20 +242,19 @@ impl<'d> Encoder<'d> {
     }
 
     /// Read the encoder angle in radians
-    pub async fn read(&mut self) -> Fixed {
+    async fn read(&mut self) -> Fixed {
         self.update().await;
         Fixed::from_num(self.pulses) * (Fixed::PI * 2 / PPR)
     }
 
-    /// Read the encoder angle in radians then reset the pulse count
-    pub async fn read_reset(&mut self) -> Fixed {
+    /// Read the encoder angle in radians
+    pub async fn read_and_reset(&mut self) -> Fixed {
         let rot = self.read().await;
-        self.reset();
+        self.reset_pulse_count();
         rot
     }
 
-    /// Reset the pulse count
-    pub fn reset(&mut self) {
+    fn reset_pulse_count(&mut self) {
         self.pulses = 0;
     }
 
@@ -191,46 +276,4 @@ impl<'d> Encoder<'d> {
             Direction::None => (),
         }
     }
-}
-
-/// Creates and sets up a new encoder state machine.
-pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
-    static ENCODER_COUNT: Mutex<CriticalSectionRawMutex, u32> = Mutex::new(0);
-
-    // This macro creates a PIO encoder state machine and wraps it in
-    // an enum for the proper encoder.
-    macro_rules! pio_encoder {
-        ($machine:ident: ($pio:ident, $sm:ident)) => {{
-            let p = unsafe { embassy_rp::peripherals::$pio::steal() };
-            let Pio {
-                mut common, $sm, ..
-            } = Pio::new(p, Irqs);
-
-            let pio_encoder = PioEncoderInner::new(&mut common, $sm, clk_pin);
-            defmt::info!("Starting encoder {}", stringify!($machine));
-            log::info!("Starting encoder {}", stringify!($machine));
-
-            PioEncoder::$machine(pio_encoder)
-        }};
-    }
-
-    // each time this function is called a new PIO machine has
-    // to be used. The `ENCODER_COUNT` is keeping track of
-    // how many have been created
-    let machine = match *ENCODER_COUNT.lock().await {
-        // we can't load all these PIO because not enough instruction
-        // memory
-        0 => pio_encoder!(P0SM0: (PIO0, sm0)),
-        1 => pio_encoder!(P0SM1: (PIO0, sm1)),
-        2 => pio_encoder!(P0SM2: (PIO0, sm2)),
-        3 => pio_encoder!(P1SM0: (PIO1, sm0)),
-        4 => pio_encoder!(P1SM1: (PIO1, sm1)),
-        5 => pio_encoder!(P1SM2: (PIO1, sm2)),
-        _ => panic!("Exceeded the number of supported encoders"),
-    };
-
-    *ENCODER_COUNT.lock().await += 1;
-
-    let encoder = Encoder::new(machine);
-    encoder
 }
