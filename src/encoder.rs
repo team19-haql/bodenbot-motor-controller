@@ -7,7 +7,6 @@ use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::Timer;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, Instance, InterruptHandler, Pio, PioPin, StateMachine};
 
