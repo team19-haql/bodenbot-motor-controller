@@ -79,10 +79,13 @@ pub async fn device_task(i2c: I2C1, d_sda: p::PIN_26, d_scl: p::PIN_27) -> ! {
                 defmt::info!("Device received general call write: {}", buf[..len])
             }
             Ok(i2c_slave::Command::Read) => loop {
-                defmt::warn!("Read command not used");
+                defmt::warn!("Received Read command");
                 match dev.respond_to_read(&[0x73]).await {
                     Ok(x) => match x {
-                        i2c_slave::ReadStatus::Done => break,
+                        i2c_slave::ReadStatus::Done => {
+                            log::info!("Finished responding to read");
+                            break;
+                        }
                         i2c_slave::ReadStatus::NeedMoreBytes => (),
                         i2c_slave::ReadStatus::LeftoverBytes(x) => {
                             defmt::info!("tried to write {} extra bytes", x);
