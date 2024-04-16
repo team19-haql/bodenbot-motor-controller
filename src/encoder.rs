@@ -40,6 +40,7 @@ pub enum Direction {
 /// A wrapper for the PIO encoder state machine to allow
 /// multiple generic instances of the PIO state machine to be
 /// used in a non generic function.
+#[allow(dead_code)]
 enum PioEncoder<'d> {
     P0SM0(PioEncoderInner<'d, PIO0, 0>),
     P0SM1(PioEncoderInner<'d, PIO0, 1>),
@@ -80,14 +81,13 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         #[rustfmt::skip]
         let pio_program = pio_proc::pio_asm!(
             "start:",
-            "  set y 0",
-            "  mov y ~y", // negate y so counter is accurate
+            "  set y (-1)", // negate y so counter is accurate
+            "  set x 0",
             "loop:",
             "  wait 0 pin 0 [8]",
             "  wait 1 pin 0 [8]",
             "  jmp y-- test",
             "test:",
-            "  set x 0",
             "  pull noblock",
             "  out x 32",
             "  jmp !x loop",
@@ -95,6 +95,9 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
             "  mov isr ~y",
             "  push",
         );
+        let program = &pio
+            .try_load_program(&pio_program.program)
+            .expect("Failed to load PIO program.");
 
         let mut cfg = Config::default();
 
@@ -103,9 +106,9 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         sm.set_pin_dirs(pio::Direction::In, &[&pulse_pin]);
         cfg.set_in_pins(&[&pulse_pin]);
         // limit clock speed to avoid reading jitter
-        cfg.clock_divider = 100.to_fixed();
+        cfg.clock_divider = 10.to_fixed();
 
-        cfg.use_program(&pio.load_program(&pio_program.program), &[]);
+        cfg.use_program(program, &[]);
         sm.set_config(&cfg);
         sm.set_enable(true);
         Self { sm }
@@ -215,14 +218,14 @@ pub async fn spawn_encoder<'d>(clk_pin: impl PioPin) -> Encoder<'d> {
     // to be used. The `ENCODER_COUNT` is keeping track of
     // how many have been created
     let machine = match *ENCODER_COUNT.lock().await {
+        // we can't load all these PIO because not enough instruction
+        // memory
         0 => pio_encoder!(P0SM0: (PIO0, sm0)),
         1 => pio_encoder!(P0SM1: (PIO0, sm1)),
         2 => pio_encoder!(P0SM2: (PIO0, sm2)),
-        3 => pio_encoder!(P0SM3: (PIO0, sm3)),
-        4 => pio_encoder!(P1SM0: (PIO1, sm0)),
-        5 => pio_encoder!(P1SM1: (PIO1, sm1)),
-        6 => pio_encoder!(P1SM2: (PIO1, sm2)),
-        7 => pio_encoder!(P1SM3: (PIO1, sm3)),
+        3 => pio_encoder!(P1SM0: (PIO1, sm0)),
+        4 => pio_encoder!(P1SM1: (PIO1, sm1)),
+        5 => pio_encoder!(P1SM2: (PIO1, sm2)),
         _ => panic!("Exceeded the number of supported encoders"),
     };
 
