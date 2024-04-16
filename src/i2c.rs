@@ -26,10 +26,12 @@ const DEV_ADDR: u8 = 0x42;
 /// Macro to define registers for I2C communication
 macro_rules! registers {
     ($($name:ident: $value:expr),* $(,)?) => {
-        $(
-        #[doc = concat!("The register value for ", stringify!($name))]
-        const $name: u8 = $value;
-        )*
+        pub mod registers {
+            $(
+            #[doc = concat!("The register value for ", stringify!($name))]
+            pub const $name: u8 = $value;
+            )*
+        }
     }
 }
 
@@ -44,6 +46,8 @@ registers!(
     FAN0: 0x20,
     FAN1: 0x21,
 );
+
+use registers::*;
 
 fn read_motor(motor: &DriverMutex) -> [u8; 4] {
     let value = if let Ok(m) = motor.try_lock() {

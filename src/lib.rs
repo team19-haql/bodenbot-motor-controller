@@ -4,7 +4,8 @@ mod encoder;
 mod i2c;
 pub mod motor;
 mod pwm;
-mod serial;
+// mod serial;
+mod serial_motor;
 pub mod utils;
 
 use embassy_executor::Spawner;
@@ -12,6 +13,7 @@ use embassy_rp::gpio;
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::{Duration, Ticker, Timer};
 use gpio::{AnyPin, Input, Output};
+
 use {defmt_rtt as _, panic_probe as _};
 
 pub async fn motor_control(spawner: &Spawner) {
@@ -19,7 +21,7 @@ pub async fn motor_control(spawner: &Spawner) {
     defmt::info!("Start Motor Controller!");
 
     // start serial
-    spawner.must_spawn(serial::serial_task(p.USB));
+    spawner.must_spawn(serial_motor::serial_motor_task(p.USB));
     spawner.must_spawn(i2c::device_task(p.I2C1, p.PIN_26, p.PIN_27));
 
     // Set to watchdog to reset if it's not fed within 1.05 seconds, and start it
@@ -31,18 +33,24 @@ pub async fn motor_control(spawner: &Spawner) {
     join!(
         // create pwm workers
         // pwm::slice_worker_b(p.PWM_CH0, p.PIN_1, &pwm::MOTOR0_PWM),
-        pwm::slice_worker_ab(p.PWM_CH0, p.PIN_16, &pwm::MOTOR5, p.PIN_1, &pwm::MOTOR0),
+        pwm::slice_worker_ab(p.PWM_SLICE0, p.PIN_16, &pwm::MOTOR5, p.PIN_1, &pwm::MOTOR0),
         pwm::slice_worker_ab(
-            p.PWM_CH1,
+            p.PWM_SLICE1,
             p.PIN_18,
             &pwm::LED0_PWM,
             p.PIN_19,
             &pwm::FAN0_PWM
         ),
-        pwm::slice_worker_ab(p.PWM_CH2, p.PIN_4, &pwm::MOTOR1, p.PIN_21, &pwm::FAN1_PWM),
-        pwm::slice_worker_b(p.PWM_CH3, p.PIN_7, &pwm::MOTOR2),
-        pwm::slice_worker_b(p.PWM_CH5, p.PIN_11, &pwm::MOTOR3),
-        pwm::slice_worker_a(p.PWM_CH7, p.PIN_14, &pwm::MOTOR4),
+        pwm::slice_worker_ab(
+            p.PWM_SLICE2,
+            p.PIN_4,
+            &pwm::MOTOR1,
+            p.PIN_21,
+            &pwm::FAN1_PWM
+        ),
+        pwm::slice_worker_b(p.PWM_SLICE3, p.PIN_7, &pwm::MOTOR2),
+        pwm::slice_worker_b(p.PWM_SLICE5, p.PIN_11, &pwm::MOTOR3),
+        pwm::slice_worker_a(p.PWM_SLICE7, p.PIN_14, &pwm::MOTOR4),
         // start motor drivers
         motor::motor_driver(&pwm::MOTOR0, &motor::MOTOR0, p.PIN_0, enc.spawn(p.PIN_2),),
         motor::motor_driver(&pwm::MOTOR1, &motor::MOTOR1, p.PIN_3, enc.spawn(p.PIN_5),),
