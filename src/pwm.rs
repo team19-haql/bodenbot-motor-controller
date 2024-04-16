@@ -5,7 +5,7 @@
 //! This way we do not directly interact with the pins.
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
-use embassy_rp::pwm::{Channel, Config, Pwm, PwmPinA, PwmPinB};
+use embassy_rp::pwm::{ChannelAPin, ChannelBPin, Config, Pwm, Slice};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 
@@ -48,9 +48,9 @@ pub async fn slice_worker_ab<C, U, V>(
     sig_b: &'static PwmSignal,
 ) -> !
 where
-    C: Channel,
-    U: PwmPinA<C>,
-    V: PwmPinB<C>,
+    C: Slice,
+    U: ChannelAPin<C>,
+    V: ChannelBPin<C>,
 {
     let mut config = Config::default();
     config.top = TOP_CLOCK;
@@ -72,8 +72,8 @@ where
 /// on the a channel.
 pub async fn slice_worker_a<C, U>(chan: C, p: U, sig: &'static PwmSignal) -> !
 where
-    C: Channel,
-    U: PwmPinA<C>,
+    C: Slice,
+    U: ChannelAPin<C>,
 {
     let mut config = Config::default();
     config.top = TOP_CLOCK;
@@ -88,8 +88,8 @@ where
 /// on the b channel.
 pub async fn slice_worker_b<C, U>(chan: C, p: U, sig: &'static PwmSignal) -> !
 where
-    C: Channel,
-    U: PwmPinB<C>,
+    C: Slice,
+    U: ChannelBPin<C>,
 {
     let mut config = Config::default();
     config.top = TOP_CLOCK;
