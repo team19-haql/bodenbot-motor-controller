@@ -121,10 +121,11 @@ where
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut last_update = Instant::now();
     loop {
+        let start_time = Instant::now();
         let value = encoder.read_and_reset().await;
         // make sure the time step doesn't become too long
         // reading from encoder may stall when not moving.
-        let elapsed = last_update.elapsed().min(Duration::from_millis(100));
+        let elapsed = last_update.elapsed().min(Duration::from_millis(10));
         let control = driver.lock().await.update(value, elapsed);
         let control = control
             .saturating_mul(Fixed::from_num(1 << 8))
@@ -146,9 +147,12 @@ where
         pwm_signal.signal(control.unsigned_abs() as u16);
 
         last_update = Instant::now();
+        let end_time = Instant::now();
+        let elapsed = (end_time - start_time).as_micros();
+        defmt::info!("Motor driver loop took: {:?} us", elapsed);
 
         // use Timer instead of Ticker so time steps remain constant
         // even if the loop takes longer due to encoder stall
-        Timer::after(Duration::from_hz(100)).await;
+        Timer::after(Duration::from_hz(10)).await;
     }
 }
