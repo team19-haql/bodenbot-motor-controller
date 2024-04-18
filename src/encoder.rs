@@ -8,8 +8,6 @@ use embassy_rp::{bind_interrupts, pio};
 use fixed::traits::ToFixed;
 use pio::{Common, Config, Instance, InterruptHandler, LoadedProgram, Pio, PioPin, StateMachine};
 
-pub use fixed::types::I16F16 as Fixed;
-
 /// The gear ratio of the bodenbot motors
 const RATIO: i32 = 100;
 
@@ -242,13 +240,13 @@ impl<'d> Encoder<'d> {
     }
 
     /// Read the encoder angle in radians
-    async fn read(&mut self) -> Fixed {
+    async fn read(&mut self) -> f32 {
         self.update().await;
-        Fixed::from_num(self.pulses) * (Fixed::PI * 2 / PPR)
+        (self.pulses as f32) * (core::f32::consts::PI * 2.0) / (PPR as f32)
     }
 
     /// Read the encoder angle in radians
-    pub async fn read_and_reset(&mut self) -> Fixed {
+    pub async fn read_and_reset(&mut self) -> f32 {
         let rot = self.read().await;
         self.reset_pulse_count();
         rot

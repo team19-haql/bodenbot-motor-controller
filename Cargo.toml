@@ -72,7 +72,7 @@ features = ["defmt", "defmt-timestamp-uptime"]
 
 [dependencies.embassy-rp]
 git = "https://github.com/embassy-rs/embassy.git"
-features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"]
+features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "rom-func-cache"]
 
 [dependencies.embassy-futures]
 git = "https://github.com/embassy-rs/embassy.git"

@@ -2,7 +2,6 @@
 //!
 //! This creates a USB serial port that echos.
 
-use crate::encoder::Fixed;
 use crate::i2c::registers;
 use crate::join;
 use crate::motor;
@@ -15,7 +14,6 @@ use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use fixed::traits::ToFixed;
 use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -98,18 +96,18 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-fn read_motor(motor: &DriverMutex) -> Fixed {
+fn read_motor(motor: &DriverMutex) -> f32 {
     let value = if let Ok(m) = motor.try_lock() {
         m.get_measure_value()
         // m.get_target()
     } else {
-        0.to_fixed()
+        0.0
     };
     value
 }
 
-async fn write_motor(motor: &DriverMutex, value: Fixed) {
-    defmt::info!("Setting motor target: {}", value.to_num::<f32>());
+async fn write_motor(motor: &DriverMutex, value: f32) {
+    defmt::info!("Setting motor target: {}", value);
     motor.lock().await.set_target(value);
 }
 
@@ -125,7 +123,7 @@ async fn handle_command<'d, T: Instance + 'd>(
 
     match (command.next(), command.next(), command.next()) {
         (Some(b"write"), Some(b"all"), Some(value)) => {
-            let value: Fixed = core::str::from_utf8(value)
+            let value = core::str::from_utf8(value)
                 .map_err(|_| "parse value error")?
                 .parse()
                 .map_err(|_| "parse vlaue error")?;
@@ -151,7 +149,7 @@ async fn handle_command<'d, T: Instance + 'd>(
                 .map_err(|_| "parse reg error")?
                 .parse()
                 .map_err(|_| "parse reg error")?;
-            let value: Fixed = core::str::from_utf8(value)
+            let value = core::str::from_utf8(value)
                 .map_err(|_| "parse value error")?
                 .parse()
                 .map_err(|_| "parse vlaue error")?;
@@ -163,9 +161,9 @@ async fn handle_command<'d, T: Instance + 'd>(
                 registers::MOTOR3 => write_motor(&motor::MOTOR3, value).await,
                 registers::MOTOR4 => write_motor(&motor::MOTOR4, value).await,
                 registers::MOTOR5 => write_motor(&motor::MOTOR5, value).await,
-                registers::LED0 => pwm::LED0_PWM.signal(value.to_num::<u16>()),
-                registers::FAN0 => pwm::FAN0_PWM.signal(value.to_num::<u16>()),
-                registers::FAN1 => pwm::FAN1_PWM.signal(value.to_num::<u16>()),
+                registers::LED0 => pwm::LED0_PWM.signal(value as u16),
+                registers::FAN0 => pwm::FAN0_PWM.signal(value as u16),
+                registers::FAN1 => pwm::FAN1_PWM.signal(value as u16),
                 _ => {
                     defmt::info!("bad register number: {}", reg_num);
                     return Err("bad register number");

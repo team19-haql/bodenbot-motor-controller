@@ -9,7 +9,6 @@
 //!
 //! The `LED` and `FAN` registers use a `u16` for a compare value a pwm clock. The value
 //! can only be written to.
-use crate::encoder::Fixed;
 use crate::motor;
 use crate::motor::DriverMutex;
 use crate::pwm;
@@ -60,7 +59,7 @@ fn read_motor(motor: &DriverMutex) -> [u8; 4] {
 }
 
 async fn write_motor(motor: &DriverMutex, value: [u8; 4]) {
-    let value = Fixed::from_le_bytes(value);
+    let value = f32::from_le_bytes(value);
     motor.lock().await.set_target(value);
 }
 

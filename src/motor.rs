@@ -3,19 +3,18 @@
 //!
 //! The current state of the driver such as target value and
 //! measured value can be read over i2c.
-use crate::encoder::{Direction, Encoder, Fixed};
-use crate::pwm::PwmSignal;
+use crate::encoder::{Direction, Encoder};
+use crate::pwm::{PwmSignal, TOP_CLOCK};
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_time::{Duration, Instant, Timer};
-use fixed_macro::fixed;
 
 /// Proportional PID controller constant
-const K_P: Fixed = fixed!(8.0: I16F16);
+const K_P: f32 = 8.0;
 /// Integral PID controller constant
-const K_I: Fixed = fixed!(0.0: I16F16);
+const K_I: f32 = 0.0;
 /// Derivative PID controller constant
-const K_D: Fixed = fixed!(0.0: I16F16);
+const K_D: f32 = 0.0;
 
 pub type DriverMutex = Mutex<Driver>;
 
@@ -40,67 +39,61 @@ motor_drivers!(
 
 /// PID controller for motor speed control
 pub struct Driver {
-    target_value: Fixed,
-    previous_value: Fixed,
-    integral: Fixed,
-    output: Fixed,
-    measured_value: Fixed,
+    target_value: f32,
+    previous_value: f32,
+    integral: f32,
+    output: f32,
+    measured_value: f32,
 }
 
 impl Driver {
     pub const fn new() -> Self {
         Self {
-            target_value: fixed!(0: I16F16),
-            previous_value: fixed!(0: I16F16),
-            integral: fixed!(0: I16F16),
-            output: fixed!(0: I16F16),
-            measured_value: fixed!(0: I16F16),
+            target_value: 0.0,
+            previous_value: 0.0,
+            integral: 0.0,
+            output: 0.0,
+            measured_value: 0.0,
         }
     }
 
     /// Read the target value for the PID controller
-    pub fn set_target(&mut self, target: Fixed) {
-        self.target_value = target;
+    pub fn set_target(&mut self, target: f32) {
+        self.target_value = target
     }
 
     /// Read the current target value for the PID controller
-    pub fn get_target(&self) -> Fixed {
+    pub fn get_target(&self) -> f32 {
         self.target_value
     }
 
     /// Read the last measured_value for the PID controller
-    pub fn get_measure_value(&self) -> Fixed {
+    pub fn get_measure_value(&self) -> f32 {
         self.measured_value
     }
 
     /// Update the PID controller with a new measured_value and time delta.
-    pub fn update(&mut self, rotations: Fixed, delta: Duration) -> Fixed {
+    pub fn update(&mut self, rotations: f32, delta: Duration) -> f32 {
         // should not be longer than a few milliseconds
         // Divide by 1000000 to convert micros to seconds
-        let dt = Fixed::from_num(delta.as_micros() as i32) / 1000000;
-        if dt == 0 {
+        let dt = (delta.as_micros() as f32) / 10000000.0;
+        if dt < 1e-6 {
             return self.output;
         }
-        let angular_velocity = rotations.saturating_div(dt);
+        let angular_velocity = rotations / dt;
         self.measured_value = angular_velocity;
 
         let error = self.target_value - angular_velocity;
         let proportional = error; // Proportional term
-        self.integral = error.saturating_mul_add(dt, self.integral); // Integral term
+        self.integral += error * dt; // Integral term
 
         // Windup guard
         // 80 RPM -> 0.00838 rad/ms
-        self.integral = self
-            .integral
-            .clamp(-fixed!(0.05: I16F16), fixed!(0.05: I16F16));
+        self.integral = self.integral.clamp(-1.00, 1.00);
 
         let derivative = (self.previous_value - angular_velocity) / dt; // Derivative term
         self.previous_value = angular_velocity;
-        self.output = K_P
-            .saturating_mul(proportional)
-            .saturating_add(K_I.saturating_mul(self.integral))
-            .saturating_add(K_D.saturating_mul(derivative))
-            .saturating_add(self.output);
+        self.output += K_P * proportional + (K_I * self.integral) + (K_D * derivative);
         self.output
     }
 }
@@ -123,14 +116,12 @@ where
     loop {
         let start_time = Instant::now();
         let value = encoder.read_and_reset().await;
+        let value = value + 0.7;
         // make sure the time step doesn't become too long
         // reading from encoder may stall when not moving.
-        let elapsed = last_update.elapsed().min(Duration::from_millis(10));
+        let elapsed = last_update.elapsed().min(Duration::from_millis(20));
         let control = driver.lock().await.update(value, elapsed);
-        let control = control
-            .saturating_mul(Fixed::from_num(1 << 8))
-            .to_num::<i32>()
-            .saturating_mul(8);
+        let control = control.clamp(-(TOP_CLOCK as f32), TOP_CLOCK as f32) as i32;
 
         // Use a threshold to set encoder direction to avoid oscillation
         // when switching directions
