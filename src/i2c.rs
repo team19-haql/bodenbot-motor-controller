@@ -21,7 +21,7 @@ bind_interrupts!(struct Irqs {
 });
 
 /// The device address for the I2C device
-const DEV_ADDR: u8 = 0x42;
+const DEV_ADDR: u8 = 0x22;
 
 /// Macro to define registers for I2C communication
 macro_rules! registers {

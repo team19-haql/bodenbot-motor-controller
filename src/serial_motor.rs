@@ -101,7 +101,7 @@ impl From<EndpointError> for Disconnected {
 fn read_motor(motor: &DriverMutex) -> Fixed {
     let value = if let Ok(m) = motor.try_lock() {
         m.get_measure_value()
-        // m.get_target().to_le_bytes()
+        // m.get_target()
     } else {
         0.to_fixed()
     };
@@ -137,10 +137,14 @@ async fn handle_command<'d, T: Instance + 'd>(
             write_motor(&motor::MOTOR4, value).await;
             write_motor(&motor::MOTOR5, value).await;
 
+            let mut write_buffer: Vec<u8, 64> = Vec::new();
+            write!(&mut write_buffer, "OK: set 'all' to {:5.5}", value)
+                .map_err(|_| "failed to write to buffer")?;
+
             class
-                .write_packet(b"OK\n")
+                .write_packet(&write_buffer)
                 .await
-                .map_err(|_| "write error")?;
+                .map_err(|_| "failed to send packet")?;
         }
         (Some(b"write"), Some(reg), Some(value)) => {
             let reg_num = core::str::from_utf8(reg)
@@ -168,10 +172,36 @@ async fn handle_command<'d, T: Instance + 'd>(
                 }
             }
 
+            let mut write_buffer: Vec<u8, 64> = Vec::new();
+            write!(&mut write_buffer, "OK: set '{}' to {:5.5}", reg_num, value)
+                .map_err(|_| "failed to write to buffer")?;
+
             class
-                .write_packet(b"OK\n")
+                .write_packet(&write_buffer)
                 .await
-                .map_err(|_| "write error")?;
+                .map_err(|_| "failed to send packet")?;
+        }
+        (Some(b"read"), Some(b"all"), _) => {
+            let mut write_buffer: Vec<u8, 64> = Vec::new();
+            macro_rules! read_motor {
+                ($motor:expr) => {{
+                    let value = read_motor($motor);
+                    write!(&mut write_buffer, "{:5.5} ", value)
+                        .map_err(|_| "failed to write to buffer")?;
+                }};
+            }
+
+            read_motor!(&motor::MOTOR0);
+            read_motor!(&motor::MOTOR1);
+            read_motor!(&motor::MOTOR2);
+            read_motor!(&motor::MOTOR3);
+            read_motor!(&motor::MOTOR4);
+            read_motor!(&motor::MOTOR5);
+
+            class
+                .write_packet(&write_buffer)
+                .await
+                .map_err(|_| "failed to send packet")?;
         }
         (Some(b"read"), Some(reg), _) => {
             let reg_num = core::str::from_utf8(reg)
@@ -192,8 +222,8 @@ async fn handle_command<'d, T: Instance + 'd>(
                 }
             };
 
-            let mut write_buffer: Vec<u8, 256> = Vec::new();
-            writeln!(&mut write_buffer, "{}\n", value).map_err(|_| "failed to write to buffer")?;
+            let mut write_buffer: Vec<u8, 64> = Vec::new();
+            write!(&mut write_buffer, "{:5.5}", value).map_err(|_| "failed to write to buffer")?;
 
             class
                 .write_packet(&write_buffer)
@@ -215,20 +245,24 @@ async fn motor_control<'d, T: Instance + 'd>(
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     let mut command_buffer = [0; 256];
-    let mut position = 0;
+    let mut position: usize = 0;
     loop {
         let n = class.read_packet(&mut buf).await?;
 
         let mut newline = false;
 
         let data = &mut buf[..n];
+        let mut data_end = n;
 
-        for c in data.iter_mut() {
-            if *c == b'\r' {
-                *c = b'\n';
-            }
-            if *c == b'\n' {
+        for (i, c) in data.iter_mut().enumerate() {
+            if *c == b'\n' || *c == b'\r' {
                 newline = true;
+                data_end = i;
+                break;
+            } else if *c == 0x7f {
+                // backspace
+                position = position.saturating_sub(1);
+                *c = 0x8;
             } else {
                 command_buffer[position] = *c;
                 position += 1;
@@ -240,15 +274,16 @@ async fn motor_control<'d, T: Instance + 'd>(
             core::str::from_utf8(data).unwrap_or("bad data")
         );
 
-        class.write_packet(data).await?;
+        class.write_packet(&data[..data_end]).await?;
 
         if newline {
+            class.write_packet(b"\r\n").await?;
             if let Err(e) = handle_command(&command_buffer[..position], class).await {
                 class.write_packet(b"error: ").await?;
                 class.write_packet(e.as_bytes()).await?;
-                class.write_packet(b"\n").await?;
                 defmt::info!("failed to parse command");
             }
+            class.write_packet(b"\r\n").await?;
             position = 0;
         }
     }
