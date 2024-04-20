@@ -9,6 +9,8 @@ use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_time::{Duration, Instant, Ticker};
 use num_traits::float::FloatCore;
+use rand::prelude::*;
+use rand::rngs::SmallRng;
 
 /// Proportional PID controller constant
 const K_P: f32 = 8.0;
@@ -16,6 +18,7 @@ const K_P: f32 = 8.0;
 const K_I: f32 = 0.0;
 /// Derivative PID controller constant
 const K_D: f32 = 0.0;
+const FREQUENCY: u64 = 30000;
 
 pub type DriverMutex = Mutex<Driver>;
 
@@ -74,27 +77,31 @@ impl Driver {
     }
 
     /// Update the PID controller with a new measured_value and time delta.
-    pub fn update(&mut self, rotations: f32, delta: Duration) -> f32 {
+    pub fn update(&mut self, radians: f32, delta: Duration) -> f32 {
         // should not be longer than a few milliseconds
         // Divide by 1000000 to convert micros to seconds
         let dt = (delta.as_micros() as f32) / 1e-6;
         if dt.abs() < 1e-6 {
             return self.output;
         }
-        let angular_velocity = rotations / dt;
-        self.measured_value = angular_velocity;
 
-        let error = self.target_value - angular_velocity;
+        self.measured_value = radians / dt;
+
+        let error = self.target_value - self.measured_value;
         let proportional = error; // Proportional term
         self.integral += error * dt; // Integral term
+        if self.integral.is_nan() {
+            self.integral = 0.0;
+        }
 
         // Windup guard
         // 80 RPM -> 0.00838 rad/ms
-        self.integral = self.integral.clamp(-1.00, 1.00);
+        self.integral = self.integral.clamp(-10.00, 10.00);
 
-        let derivative = (self.previous_value - angular_velocity) / dt; // Derivative term
-        self.previous_value = angular_velocity;
-        self.output += K_P * proportional + (K_I * self.integral) + (K_D * derivative);
+        let derivative = (self.previous_value - self.measured_value) / dt; // Derivative term
+        self.previous_value = self.measured_value;
+
+        self.output += (K_P * proportional) + (K_I * self.integral) + (K_D * derivative);
         self.output = self.output.clamp(-(TOP_CLOCK as f32), TOP_CLOCK as f32);
         if self.output.is_nan() {
             self.output = 0.0;
@@ -118,14 +125,16 @@ where
     log::info!("Starting motor driver");
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut last_update = Instant::now();
-    let mut ticker = Ticker::every(Duration::from_hz(10));
+    let mut ticker = Ticker::every(Duration::from_hz(FREQUENCY));
+    let mut rng = SmallRng::seed_from_u64(10043);
+    let mut i = 0;
     loop {
         let start_time = Instant::now();
         let value = encoder.read_and_reset().await;
-        let value = value + 0.7;
+        let value = value + rng.gen_range(-4.0..4.0);
         // make sure the time step doesn't become too long
         // reading from encoder may stall when not moving.
-        let elapsed = last_update.elapsed().min(Duration::from_millis(20));
+        let elapsed = last_update.elapsed();
         let control = driver.lock().await.update(value, elapsed);
 
         // Use a threshold to set encoder direction to avoid oscillation
@@ -145,7 +154,10 @@ where
         last_update = Instant::now();
         let end_time = Instant::now();
         let elapsed = (end_time - start_time).as_micros();
-        defmt::info!("Motor driver loop took: {:?} us", elapsed);
+        i = (i + 1) % FREQUENCY;
+        if i == 0 {
+            defmt::info!("Motor driver loop took: {:?} us", elapsed);
+        }
 
         // use Timer instead of Ticker so time steps remain constant
         // even if the loop takes longer due to encoder stall

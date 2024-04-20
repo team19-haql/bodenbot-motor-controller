@@ -1,7 +1,7 @@
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex as EmbassyMutex;
 
-pub type Mutex<T> = EmbassyMutex<ThreadModeRawMutex, T>;
+pub type Mutex<T> = EmbassyMutex<CriticalSectionRawMutex, T>;
 
 /// This is a macro that improves on the embassy join function
 /// with the advantage of joining any number of futures.
