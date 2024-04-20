@@ -9,6 +9,7 @@ use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_time::{Duration, Instant, Ticker};
 use num_traits::float::FloatCore;
+use once_cell::sync::Lazy;
 
 /// Proportional PID controller constant
 const K_P: f32 = 1.0;
@@ -18,13 +19,15 @@ const K_I: f32 = 0.0;
 const K_D: f32 = 0.0;
 const FREQUENCY: u64 = 100;
 
-pub type DriverMutex = Mutex<Driver>;
+pub type DriverMutex = Mutex<Lazy<Driver>>;
 
 macro_rules! motor_drivers {
     ($($motor:ident),*$(,)?) => {
         $(
         #[doc = concat!("The global singleton for motor driver ", stringify!($motor))]
-        pub static $motor: DriverMutex = DriverMutex::new(Driver::new());
+        pub static $motor: DriverMutex = DriverMutex::new(Lazy::new(|| {
+            Driver::default()
+        }));
         )*
     };
 }
@@ -39,26 +42,45 @@ motor_drivers!(
     MOTOR5,
 );
 
+struct ExponentialAverage {
+    value: f32,
+    alpha: f32,
+}
+
+impl ExponentialAverage {
+    fn new(alpha: f32) -> Self {
+        Self { value: 0.0, alpha }
+    }
+    fn add(&mut self, value: f32) {
+        self.value = self.alpha * value + (1.0 - self.alpha) * self.value;
+    }
+    fn average(&self) -> f32 {
+        self.value
+    }
+}
+
 /// PID controller for motor speed control
 pub struct Driver {
     target_value: f32,
     previous_error: f32,
     integral: f32,
     output: f32,
-    measured_value: f32,
+    data: ExponentialAverage,
 }
 
-impl Driver {
-    pub const fn new() -> Self {
+impl Default for Driver {
+    fn default() -> Self {
         Self {
             target_value: 0.0,
             previous_error: 0.0,
             integral: 0.0,
             output: 0.0,
-            measured_value: 0.0,
+            data: ExponentialAverage::new(1.0 / (0.05 * FREQUENCY as f32 + 1.0)),
         }
     }
+}
 
+impl Driver {
     /// Read the target value for the PID controller
     pub fn set_target(&mut self, target: f32) {
         self.target_value = target
@@ -71,21 +93,22 @@ impl Driver {
 
     /// Read the last measured_value for the PID controller
     pub fn get_measure_value(&self) -> f32 {
-        self.measured_value
+        self.data.average()
     }
 
     /// Update the PID controller with a new measured_value and time delta.
     pub fn update(&mut self, radians: f32, delta: Duration) -> f32 {
         // should not be longer than a few milliseconds
         // Divide by 1000000 to convert micros to seconds
-        let dt = (delta.as_micros() as f32) / 1e-6;
+        let dt = (delta.as_micros() as f32) / 1e6;
         if dt.abs() < 1e-6 {
             return self.output;
         }
 
-        self.measured_value = radians / dt;
+        self.data.add(radians / dt);
+        let measured_value = self.data.average();
 
-        let error = (self.target_value - self.measured_value).clamp(-100.0, 100.0);
+        let error = (self.target_value - measured_value).clamp(-100.0, 100.0);
         let proportional = error; // Proportional term
         self.integral += error * dt; // Integral term
                                      // Windup guard
@@ -144,6 +167,7 @@ where
         pwm_signal.signal((control * TOP_CLOCK as f32) as u16);
 
         last_update = Instant::now();
+
         // use Timer instead of Ticker so time steps remain constant
         // even if the loop takes longer due to encoder stall
         ticker.next().await;
