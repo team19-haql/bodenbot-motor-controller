@@ -26,7 +26,7 @@ pub async fn motor_control(spawner: &Spawner) {
 
     // Set to watchdog to reset if it's not fed within 1.05 seconds, and start it
     let mut watchdog = Watchdog::new(p.WATCHDOG);
-    // watchdog.start(Duration::from_secs(10));
+    // watchdog.start(Duration::from_secs(5));
 
     let mut enc = encoder::EncoderBuilder::new(p.PIO0, p.PIO1);
 
@@ -75,11 +75,17 @@ pub async fn motor_control(spawner: &Spawner) {
             let mut led = Output::new(AnyPin::from(p.PIN_25), gpio::Level::Low);
             let mut ticker = Ticker::every(Duration::from_hz(1));
             loop {
-                watchdog.feed();
                 led.set_high();
                 Timer::after_millis(200).await;
                 led.set_low();
                 ticker.next().await;
+            }
+        },
+        async {
+            // feed watchdog
+            loop {
+                Timer::after_millis(100).await;
+                watchdog.feed();
             }
         },
     )
