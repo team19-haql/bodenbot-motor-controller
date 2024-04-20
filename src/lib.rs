@@ -53,11 +53,11 @@ pub async fn motor_control(spawner: &Spawner) {
         pwm::slice_worker_a(p.PWM_SLICE7, p.PIN_14, &pwm::MOTOR4),
         // start motor drivers
         motor::motor_driver(&pwm::MOTOR0, &motor::MOTOR0, p.PIN_0, enc.spawn(p.PIN_2),),
-        // motor::motor_driver(&pwm::MOTOR1, &motor::MOTOR1, p.PIN_3, enc.spawn(p.PIN_5),),
-        // motor::motor_driver(&pwm::MOTOR2, &motor::MOTOR2, p.PIN_6, enc.spawn(p.PIN_8),),
-        // motor::motor_driver(&pwm::MOTOR3, &motor::MOTOR3, p.PIN_9, enc.spawn(p.PIN_10),),
-        // motor::motor_driver(&pwm::MOTOR4, &motor::MOTOR4, p.PIN_12, enc.spawn(p.PIN_13),),
-        // motor::motor_driver(&pwm::MOTOR5, &motor::MOTOR5, p.PIN_15, enc.spawn(p.PIN_17),),
+        motor::motor_driver(&pwm::MOTOR1, &motor::MOTOR1, p.PIN_3, enc.spawn(p.PIN_5),),
+        motor::motor_driver(&pwm::MOTOR2, &motor::MOTOR2, p.PIN_6, enc.spawn(p.PIN_8),),
+        motor::motor_driver(&pwm::MOTOR3, &motor::MOTOR3, p.PIN_9, enc.spawn(p.PIN_10),),
+        motor::motor_driver(&pwm::MOTOR4, &motor::MOTOR4, p.PIN_12, enc.spawn(p.PIN_13),),
+        motor::motor_driver(&pwm::MOTOR5, &motor::MOTOR5, p.PIN_15, enc.spawn(p.PIN_17),),
         // read button
         async {
             let mut btn = Input::new(AnyPin::from(p.PIN_28), gpio::Pull::Up);

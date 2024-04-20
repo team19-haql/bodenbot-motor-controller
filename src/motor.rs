@@ -9,16 +9,14 @@ use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_time::{Duration, Instant, Ticker};
 use num_traits::float::FloatCore;
-use rand::prelude::*;
-use rand::rngs::SmallRng;
 
 /// Proportional PID controller constant
-const K_P: f32 = 8.0;
+const K_P: f32 = 1.0;
 /// Integral PID controller constant
 const K_I: f32 = 0.0;
 /// Derivative PID controller constant
 const K_D: f32 = 0.0;
-const FREQUENCY: u64 = 30000;
+const FREQUENCY: u64 = 100;
 
 pub type DriverMutex = Mutex<Driver>;
 
@@ -44,7 +42,7 @@ motor_drivers!(
 /// PID controller for motor speed control
 pub struct Driver {
     target_value: f32,
-    previous_value: f32,
+    previous_error: f32,
     integral: f32,
     output: f32,
     measured_value: f32,
@@ -54,7 +52,7 @@ impl Driver {
     pub const fn new() -> Self {
         Self {
             target_value: 0.0,
-            previous_value: 0.0,
+            previous_error: 0.0,
             integral: 0.0,
             output: 0.0,
             measured_value: 0.0,
@@ -87,22 +85,20 @@ impl Driver {
 
         self.measured_value = radians / dt;
 
-        let error = self.target_value - self.measured_value;
+        let error = (self.target_value - self.measured_value).clamp(-100.0, 100.0);
         let proportional = error; // Proportional term
         self.integral += error * dt; // Integral term
-        if self.integral.is_nan() {
-            self.integral = 0.0;
-        }
+                                     // Windup guard
+                                     // 80 RPM -> 0.00838 rad/ms
+        self.integral = self.integral.clamp(-100.0, 100.0);
 
-        // Windup guard
-        // 80 RPM -> 0.00838 rad/ms
-        self.integral = self.integral.clamp(-10.00, 10.00);
+        let derivative = (error - self.previous_error) / dt; // Derivative term
+        self.previous_error = error;
 
-        let derivative = (self.previous_value - self.measured_value) / dt; // Derivative term
-        self.previous_value = self.measured_value;
+        let accel = (K_P * proportional) + (K_I * self.integral) + (K_D * derivative);
 
-        self.output += (K_P * proportional) + (K_I * self.integral) + (K_D * derivative);
-        self.output = self.output.clamp(-(TOP_CLOCK as f32), TOP_CLOCK as f32);
+        self.output += accel * dt;
+        self.output = self.output.clamp(-1.0, 1.0);
         if self.output.is_nan() {
             self.output = 0.0;
         }
@@ -126,12 +122,8 @@ where
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut last_update = Instant::now();
     let mut ticker = Ticker::every(Duration::from_hz(FREQUENCY));
-    let mut rng = SmallRng::seed_from_u64(10043);
-    let mut i = 0;
     loop {
-        let start_time = Instant::now();
         let value = encoder.read_and_reset().await;
-        let value = value + rng.gen_range(-4.0..4.0);
         // make sure the time step doesn't become too long
         // reading from encoder may stall when not moving.
         let elapsed = last_update.elapsed();
@@ -139,26 +131,19 @@ where
 
         // Use a threshold to set encoder direction to avoid oscillation
         // when switching directions
-        if control > 2000.0 {
+        if control > 0.1 {
             direction.set_low();
             encoder.set_direction(Direction::Forward).await;
-        } else if control < -2000.0 {
+        } else if control < -0.1 {
             direction.set_high();
             encoder.set_direction(Direction::Backward).await;
         } else {
             encoder.set_direction(Direction::None).await;
         }
 
-        pwm_signal.signal(control.abs().min(u16::MAX as f32) as u16);
+        pwm_signal.signal((control * TOP_CLOCK as f32) as u16);
 
         last_update = Instant::now();
-        let end_time = Instant::now();
-        let elapsed = (end_time - start_time).as_micros();
-        i = (i + 1) % FREQUENCY;
-        if i == 0 {
-            defmt::info!("Motor driver loop took: {:?} us", elapsed);
-        }
-
         // use Timer instead of Ticker so time steps remain constant
         // even if the loop takes longer due to encoder stall
         ticker.next().await;

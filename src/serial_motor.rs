@@ -72,7 +72,7 @@ pub async fn serial_motor_task(usb: USB) {
     // Do stuff with the class!
     let echo_fut = async {
         loop {
-            defmt::info!("Waiting for connection");
+            defmt::info!("Waiting for USB connection");
             class.wait_connection().await;
             defmt::info!("Connected");
             let _ = motor_control(&mut class).await;
