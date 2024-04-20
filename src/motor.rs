@@ -7,6 +7,7 @@ use crate::encoder::{Direction, Encoder};
 use crate::pwm::{PwmSignal, TOP_CLOCK};
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
+use embassy_rp::rom_data::float_funcs::fexp;
 use embassy_time::{Duration, Instant, Ticker};
 use num_traits::float::FloatCore;
 use once_cell::sync::Lazy;
@@ -75,7 +76,7 @@ impl Default for Driver {
             previous_error: 0.0,
             integral: 0.0,
             output: 0.0,
-            data: ExponentialAverage::new(1.0 / (0.05 * FREQUENCY as f32 + 1.0)),
+            data: ExponentialAverage::new(1.0 - fexp(-1.0 / (FREQUENCY as f32 * 0.05))),
         }
     }
 }
