@@ -5,6 +5,7 @@
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::{PIO0, PIO1};
 use embassy_rp::{bind_interrupts, pio};
+use embassy_time::Duration;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, Instance, InterruptHandler, LoadedProgram, Pio, PioPin, StateMachine};
 
@@ -198,25 +199,24 @@ impl<'d, T: Instance, const SM: usize> PioEncoderInner<'d, T, SM> {
         Self { sm }
     }
 
-    async fn read(&mut self) -> i32 {
-        let value = if let Some(value) = self.sm.rx().try_pull() {
-            // we will wait to read values to avoid stalling
-            value as i32
-        } else {
-            0
-        };
-
+    async fn read(&mut self) -> u32 {
         // signal a read to the PIO state machine
         if self.sm.tx().empty() && self.sm.rx().empty() {
             self.sm.tx().push(5);
         }
 
-        value
+        embassy_time::block_for(Duration::from_nanos(50));
+
+        if let Some(value) = self.sm.rx().try_pull() {
+            value
+        } else {
+            0
+        }
     }
 }
 
 impl PioEncoder<'_> {
-    pub async fn read(&mut self) -> i32 {
+    pub async fn read(&mut self) -> u32 {
         match self {
             PioEncoder::P0SM0(sm) => sm.read().await,
             PioEncoder::P0SM1(sm) => sm.read().await,
@@ -269,8 +269,8 @@ impl<'d> Encoder<'d> {
     async fn update(&mut self) {
         let pulses = self.pio.read().await;
         match self.direction {
-            Direction::Forward => self.pulses += pulses,
-            Direction::Backward => self.pulses -= pulses,
+            Direction::Forward => self.pulses += pulses as i32,
+            Direction::Backward => self.pulses -= pulses as i32,
             Direction::None => (),
         }
     }

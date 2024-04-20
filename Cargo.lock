@@ -113,6 +113,7 @@ dependencies = [
  "futures",
  "heapless",
  "log",
+ "num-traits",
  "panic-probe",
  "pio",
  "pio-proc",

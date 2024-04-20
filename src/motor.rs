@@ -7,7 +7,8 @@ use crate::encoder::{Direction, Encoder};
 use crate::pwm::{PwmSignal, TOP_CLOCK};
 use crate::utils::Mutex;
 use embassy_rp::gpio::{AnyPin, Level, Output};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, Ticker};
+use num_traits::float::FloatCore;
 
 /// Proportional PID controller constant
 const K_P: f32 = 8.0;
@@ -76,8 +77,8 @@ impl Driver {
     pub fn update(&mut self, rotations: f32, delta: Duration) -> f32 {
         // should not be longer than a few milliseconds
         // Divide by 1000000 to convert micros to seconds
-        let dt = (delta.as_micros() as f32) / 10000000.0;
-        if dt < 1e-6 {
+        let dt = (delta.as_micros() as f32) / 1e-6;
+        if dt.abs() < 1e-6 {
             return self.output;
         }
         let angular_velocity = rotations / dt;
@@ -94,6 +95,10 @@ impl Driver {
         let derivative = (self.previous_value - angular_velocity) / dt; // Derivative term
         self.previous_value = angular_velocity;
         self.output += K_P * proportional + (K_I * self.integral) + (K_D * derivative);
+        self.output = self.output.clamp(-(TOP_CLOCK as f32), TOP_CLOCK as f32);
+        if self.output.is_nan() {
+            self.output = 0.0;
+        }
         self.output
     }
 }
@@ -113,6 +118,7 @@ where
     log::info!("Starting motor driver");
     let mut direction = Output::new(direction.into(), Level::Low);
     let mut last_update = Instant::now();
+    let mut ticker = Ticker::every(Duration::from_hz(10));
     loop {
         let start_time = Instant::now();
         let value = encoder.read_and_reset().await;
@@ -121,21 +127,20 @@ where
         // reading from encoder may stall when not moving.
         let elapsed = last_update.elapsed().min(Duration::from_millis(20));
         let control = driver.lock().await.update(value, elapsed);
-        let control = control.clamp(-(TOP_CLOCK as f32), TOP_CLOCK as f32) as i32;
 
         // Use a threshold to set encoder direction to avoid oscillation
         // when switching directions
-        if control > 2000 {
+        if control > 2000.0 {
             direction.set_low();
             encoder.set_direction(Direction::Forward).await;
-        } else if control < -2000 {
+        } else if control < -2000.0 {
             direction.set_high();
             encoder.set_direction(Direction::Backward).await;
         } else {
             encoder.set_direction(Direction::None).await;
         }
 
-        pwm_signal.signal(control.unsigned_abs() as u16);
+        pwm_signal.signal(control.abs().min(u16::MAX as f32) as u16);
 
         last_update = Instant::now();
         let end_time = Instant::now();
@@ -144,6 +149,6 @@ where
 
         // use Timer instead of Ticker so time steps remain constant
         // even if the loop takes longer due to encoder stall
-        Timer::after(Duration::from_hz(10)).await;
+        ticker.next().await;
     }
 }
